@@ -1,9 +1,15 @@
 const STORAGE_KEY = 'tavla_ui_prefs_v2';
-const PLAYER_TOKEN_KEY = 'tavla_player_token';
-const storedPrefs = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-const playerToken = localStorage.getItem(PLAYER_TOKEN_KEY) || (() => {
-  const token = (crypto?.randomUUID?.() || `p_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`);
-  localStorage.setItem(PLAYER_TOKEN_KEY, token);
+const PLAYER_TOKEN_KEY = 'tavla_player_token_v3';
+let storedPrefs = {};
+try { storedPrefs = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') || {}; }
+catch { localStorage.removeItem(STORAGE_KEY); }
+
+// Her sekmenin ayrı oyuncu kimliği vardır; sayfa yenilenince kimlik korunur.
+const playerToken = sessionStorage.getItem(PLAYER_TOKEN_KEY) || (() => {
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  const token = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+  sessionStorage.setItem(PLAYER_TOKEN_KEY, token);
   return token;
 })();
 
@@ -29,7 +35,9 @@ const state = {
   theme: storedPrefs.theme || 'classic',
   skin: storedPrefs.skin || 'classic',
   autoDice: storedPrefs.autoDice !== false,
-  toastTimer: null
+  toastTimer: null,
+  suppressReconnect: false,
+  leaveRequested: false
 };
 
 const UI = window.UI_TEXT || {};
@@ -180,6 +188,11 @@ const doubleModalText = $('doubleModalText');
 const acceptDoubleBtn = $('acceptDoubleBtn');
 const declineDoubleBtn = $('declineDoubleBtn');
 const toastLayer = $('toastLayer');
+const leaveRoomBtn = $('leaveRoomBtn');
+const matchExitBtn = $('matchExitBtn');
+const doubleExitBtn = $('doubleExitBtn');
+const rematchStatusText = $('rematchStatusText');
+const connectionStatus = $('connectionStatus');
 
 
 function showToast(message, variant = 'info') {
@@ -207,9 +220,12 @@ function updateBoardScale() {
   }
   board.classList.add('mobileScaled');
   const available = tableWrap.clientWidth - 12;
-  const naturalWidth = window.innerWidth <= 420 ? 430 : window.innerWidth <= 640 ? 480 : 560;
-  const naturalHeight = window.innerWidth <= 420 ? 332 : window.innerWidth <= 640 ? 370 : 430;
-  const scale = Math.min(1, Math.max(0.74, available / naturalWidth));
+  const smallScreen = window.innerWidth <= 640;
+  const naturalWidth = window.innerWidth <= 420 ? 430 : smallScreen ? 480 : 760;
+  const naturalHeight = window.innerWidth <= 420 ? 332 : smallScreen ? 370 : 620;
+  // Oyundan çıkan taşlar için sağda da yer ayır; mobilde yatay taşma yaratmasın.
+  const offTrayRoom = smallScreen ? 48 : 122;
+  const scale = Math.min(1, Math.max(0.62, available / (naturalWidth + offTrayRoom)));
   board.style.setProperty('--board-scale', String(scale));
   tableWrap.style.setProperty('--board-height', `${naturalHeight * scale + 8}px`);
 }
@@ -329,7 +345,7 @@ function showDoubleOffer(offer) {
   if (!offer || !state.room) return;
   const offerer = state.room.players?.[offer.offeredBy]?.name || 'Rakip';
   if (offer.offeredBy === state.me.color) return;
-  doubleModalText.textContent = `${offerer} 2x teklifi gönderdi. Kabul edersen bu el 2 puan, marsta 6 puan verecek. Reddedersen ${offerer} doğrudan 2 puan alacak.`;
+  doubleModalText.textContent = `${offerer} 2x teklifi gönderdi. Kabul edersen normal galibiyet 2, mars 4 puan kazandırır. Reddedersen ${offerer} 2 puan alır.`;
   doubleModal?.classList.remove('hidden');
 }
 
@@ -381,6 +397,8 @@ function createRoom() {
   const name = createName.value.trim() || 'Oyuncu 1';
   state.me.name = name;
   savePrefs();
+  if (!socket.connected) return setLobbyMessage('Sunucuya bağlantı kurulamadı. Biraz sonra tekrar dene.');
+  setLobbyMessage('', false);
   socket.emit('room:create', { name, targetScore: targetScoreSelect.value, playerToken: state.me.playerToken, autoDice: state.autoDice });
 }
 
@@ -392,7 +410,9 @@ function joinRoom() {
     setLobbyMessage(t('needRoomCode'));
     return;
   }
+  if (!socket.connected) return setLobbyMessage('Sunucuya bağlantı kurulamadı. Biraz sonra tekrar dene.');
   savePrefs();
+  setLobbyMessage('', false);
   socket.emit('room:join', { roomCode, name, playerToken: state.me.playerToken, autoDice: state.autoDice });
 }
 
@@ -403,9 +423,11 @@ roomCodeInput.addEventListener('input', () => {
 });
 copyRoomBtn.addEventListener('click', async () => {
   if (!state.me.roomCode) return;
-  await navigator.clipboard.writeText(getRoomShareUrl());
-  copyRoomBtn.textContent = t('copied');
-  setTimeout(() => (copyRoomBtn.textContent = t('copy')), 1000);
+  try {
+    await navigator.clipboard.writeText(getRoomShareUrl());
+    copyRoomBtn.textContent = t('copied');
+    setTimeout(() => (copyRoomBtn.textContent = t('copy')), 1000);
+  } catch { showToast('Bağlantı kopyalanamadı. Yukarıdaki bağlantıyı kendin kopyalayabilirsin.', 'warning'); }
 });
 rollDiceBtn.addEventListener('click', () => {
   if (state.autoDice) return;
@@ -434,9 +456,56 @@ chatInput?.addEventListener('keydown', (event) => {
   if (event.key === 'Enter') sendChat();
 });
 rematchBtn?.addEventListener('click', () => {
-  matchModal.classList.add('hidden');
+  if (!state.room?.game?.winner) return;
+  rematchBtn.disabled = true;
   socket.emit('match:rematch');
 });
+
+function showLobby(message = '', error = false) {
+  stopDiceAnimation();
+  clearSelection();
+  if (state.floatingChecker) state.floatingChecker.remove();
+  state.floatingChecker = null;
+  state.room = null;
+  state.animating = false;
+  state.chatMessages = [];
+  state.me.roomCode = null;
+  state.me.color = null;
+  state.lastMatchSummaryId = null;
+  state.lastRoundSummaryId = null;
+  gameScreen.classList.add('hidden');
+  lobbyScreen.classList.remove('hidden');
+  roundModal.classList.add('hidden');
+  matchModal.classList.add('hidden');
+  closeDoubleModal();
+  const url = new URL(window.location.href);
+  url.searchParams.delete('room');
+  window.history.replaceState(null, '', url.toString());
+  setLobbyMessage(message, error);
+}
+
+function leaveRoom() {
+  if (!state.me.roomCode || state.leaveRequested) return;
+  if (!window.confirm('Odadan çıkarsan oyun ve oda iki oyuncu için de kapanacak. Çıkmak istiyor musun?')) return;
+  state.leaveRequested = true;
+  state.suppressReconnect = true;
+  socket.emit('room:leave', { playerToken: state.me.playerToken });
+  showLobby('Odadan ayrıldın. Yeni bir oda açabilir veya başka bir odaya katılabilirsin.', false);
+  state.leaveRequested = false;
+}
+leaveRoomBtn?.addEventListener('click', leaveRoom);
+matchExitBtn?.addEventListener('click', leaveRoom);
+doubleExitBtn?.addEventListener('click', leaveRoom);
+
+function renderConnectionStatus() {
+  if (!connectionStatus) return;
+  const connected = socket.connected;
+  connectionStatus.classList.toggle('offline', !connected);
+  connectionStatus.innerHTML = `<span class="connectionDot"></span> ${connected ? 'Sunucuya bağlı' : 'Bağlantı bekleniyor'}`;
+  createRoomBtn.disabled = !connected;
+  joinRoomBtn.disabled = !connected;
+}
+
 applyUIText();
 renderThemeOptions();
 renderSkinOptions();
@@ -447,32 +516,44 @@ prefillLobbyFromPrefs();
 
 socket.on('connect', () => {
   // Sunucu yeniden bağlandığında oyuncunun odasını geri iste.
-  if (state.me.playerToken) {
+  renderConnectionStatus();
+  if (state.me.playerToken && !state.suppressReconnect) {
     socket.emit('player:reconnect', { playerToken: state.me.playerToken, autoDice: state.autoDice });
   }
 });
+socket.on('disconnect', () => {
+  renderConnectionStatus();
+  if (state.me.roomCode) statusText.textContent = 'Bağlantı kesildi. Yeniden bağlanılıyor...';
+});
 
 socket.on('player:reconnect-missing', () => {
-  // Özellikle ücretsiz sunucular yeniden başladığında geçici odalar silinebilir.
-  if (!state.me.roomCode) return;
-  state.me.roomCode = null;
-  state.me.color = null;
-  state.room = null;
-  state.chatMessages = [];
-  gameScreen.classList.add('hidden');
-  lobbyScreen.classList.remove('hidden');
-  setLobbyMessage('Sunucu yeniden başladığı için oda kapanmış. Yeni oda oluşturabilirsin.', true);
+  if (state.me.roomCode && !state.leaveRequested) {
+    showLobby('Sunucu yeniden başladığı için oda kapanmış. Yeni oda oluşturabilirsin.', true);
+  }
 });
+socket.on('room:closed', ({ reason } = {}) => {
+  state.suppressReconnect = false;
+  if (state.me.roomCode) showLobby(reason || 'Oda kapatıldı.', false);
+});
+socket.on('room:session-taken', () => {
+  state.suppressReconnect = true;
+  showLobby('Bu oyuncu oturumu başka bir sekmede açıldı. Buradan devam etmek için diğer sekmeyi kapatıp sayfayı yenile.', true);
+});
+socket.on('game:error', (message) => showToast(message, 'warning'));
 
 socket.on('dice:rolling', ({ duration = 900 }) => {
   startDiceAnimation(duration);
 });
 
 socket.on('room:joined', ({ roomCode, color }) => {
-  state.lastMatchSummaryId = null;
-  state.lastRoundSummaryId = null;
+  if (state.me.roomCode !== roomCode) {
+    state.lastMatchSummaryId = null;
+    state.lastRoundSummaryId = null;
+  }
+  state.suppressReconnect = false;
   state.me.roomCode = roomCode;
   state.me.color = color;
+  state.leaveRequested = false;
   updateRoomLinkPreview();
   lobbyScreen.classList.add('hidden');
   gameScreen.classList.remove('hidden');
@@ -507,12 +588,13 @@ socket.on('state:update', (roomState) => {
   const previousDoubleOffer = state.room?.game?.doubleOffer || null;
   const previousMultiplier = state.room?.game?.roundMultiplier || 1;
 
+  if (!state.me.roomCode || roomState.roomCode !== state.me.roomCode) return;
   state.room = roomState;
   updateRoomLinkPreview();
   savePrefs();
   state.animating = !!roomState.game.animating;
 
-  if (roomState.game.rolledPair) stopDiceAnimation();
+  if (roomState.game.rolledPair || roomState.game.doubleOffer || roomState.game.winner) stopDiceAnimation();
 
   if (previousDice !== nextDice && roomState.game.rolledPair) playSound('roll');
   if (prevPoints !== nextPoints) playSound('move');
@@ -549,7 +631,7 @@ socket.on('state:update', (roomState) => {
     statusText.textContent = t('matchWon');
   } else if (roomState.game.animating) {
     statusText.textContent = t('animating');
-  } else if (state.diceAnimating) {
+  } else if (state.diceAnimating || roomState.game.diceRolling) {
     statusText.textContent = t('rollingDice');
   } else if (roomState.game.waitingForRoll) {
     const autoTurn = roomState.game.turn === state.me.color ? state.autoDice : !!roomState.players?.[roomState.game.turn]?.autoDice;
@@ -577,10 +659,10 @@ socket.on('state:update', (roomState) => {
       doubleStatusText.textContent = roomState.game.doubleOffer.offeredBy === state.me.color
         ? 'Teklif gönderildi, rakip cevap bekleniyor'
         : `${offererName} senden 2x cevabı bekliyor`;
-    } else if (!roomState.game.noContactPhase) {
-      doubleStatusText.textContent = '2x yalnızca taşlar tamamen ayrılınca açılır';
     } else if (roomState.game.roundMultiplier > 1) {
       doubleStatusText.textContent = `Bu el ${roomState.game.roundMultiplier}x puan veriyor`;
+    } else if (!roomState.game.noContactPhase) {
+      doubleStatusText.textContent = '2x, taşlar tamamen ayrıldıktan sonra teklif edilebilir';
     } else if (roomState.game.canOfferDouble) {
       doubleStatusText.textContent = '2x artık aktif, istersen teklif gönderebilirsin';
     } else {
@@ -606,8 +688,19 @@ socket.on('state:update', (roomState) => {
   if (roomState.game.roundSummary) showRoundSummary(roomState.game.roundSummary);
   else roundModal.classList.add('hidden');
 
-  if (roomState.game.matchSummary) showMatchSummary(roomState.game.matchSummary);
-  else matchModal.classList.add('hidden');
+  if (roomState.game.matchSummary) {
+    showMatchSummary(roomState.game.matchSummary);
+    const myVote = !!roomState.game.rematchVotes?.[state.me.color];
+    const otherVote = !!roomState.game.rematchVotes?.[state.me.color === 'white' ? 'black' : 'white'];
+    if (rematchBtn) {
+      rematchBtn.disabled = myVote || !enemyConnected;
+      rematchBtn.textContent = myVote ? 'Rövanş istendi ✓' : 'Rövanş İste';
+    }
+    if (rematchStatusText) rematchStatusText.textContent = myVote
+      ? 'Rakibin onayı bekleniyor...'
+      : otherVote ? 'Rakibin rövanş istiyor. Sen de kabul edebilirsin.'
+        : 'Yeni maç için iki oyuncunun onayı gerekir.';
+  } else matchModal.classList.add('hidden');
   pruneSelection();
   autoSelectBarIfNeeded();
   renderDice();
@@ -631,7 +724,7 @@ function autoSelectBarIfNeeded() {
 function canSelectPoint(pointIndex) {
   if (!state.room) return false;
   if (state.room.game.turn !== state.me.color) return false;
-  if (!state.room.game.hasRolled || state.room.game.winner || state.animating) return false;
+  if (!state.room.game.hasRolled || state.room.game.winner || state.animating || state.room.game.doubleOffer) return false;
   if (state.room.game.state.bar[state.me.color] > 0) return false;
   return ownCheckerAt(pointIndex);
 }

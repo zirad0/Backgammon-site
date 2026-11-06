@@ -1,51 +1,49 @@
-# Tavla oyununu ücretsiz internete koyma
+# Tavla Online v9 — GitHub ve Render yayınlama rehberi
 
-Bu sürüm, **Hamachi olmadan** internet üzerinden oynanabilmesi için hazırlanmıştır.
-Oyuncular yalnızca internet adresine girer, oda açar ve davet bağlantısını paylaşır.
+## GitHub'a yükleme veya mevcut siteyi güncelleme
 
-## 1. GitHub'a yükle
+1. İndirdiğin ZIP dosyasını aç.
+2. GitHub'daki ilgili depoyu aç; örneğin `Backgammon-site`.
+3. **ZIP'in içindekileri** depodaki karşılık gelen dosyaların üzerine yükle: `client/`, `server/`, `tests/`, `package.json`, `package-lock.json`, `render.yaml`, `README.md` ve bu rehber.
+4. Değişiklikleri `Commit changes` ile kaydet.
+5. Dosyalar deponun **kök dizininde** bulunmalı; yanlışlıkla tüm dosyaları ek bir klasör içine koyma.
+6. `node_modules/` klasörünü GitHub'a yükleme.
 
-1. https://github.com adresinde hesabına gir.
-2. **New repository** ile yeni bir proje oluştur (örneğin `tavla-online`).
-3. Bilgisayarına indirdiğin bu ZIP'i aç. **ZIP dosyasının kendisini değil, içindeki dosyaları** GitHub projesine yükle.
-4. Dosyalar GitHub'da doğrudan kökte olmalı: `package.json`, `server/`, `client/`, `render.yaml` vb.
-5. **node_modules klasörünü yükleme.** Bu pakette zaten bulunmuyor; Render gerekli parçaları kendisi kurar.
+> Mevcut Render sitesi bu GitHub deposuna bağlıysa commit'ten sonra otomatik dağıtım tetiklenebilir. Otomatik dağıtım kapalıysa Render'da **Manual Deploy > Deploy latest commit** kullan.
 
-## 2. Render'a bağla
+## Render'da ilk kurulum
 
-1. https://dashboard.render.com adresinden ücretsiz hesap aç.
-2. **New > Web Service** seç.
-3. GitHub hesabını bağla, `tavla-online` projesini seç.
-4. Ayarlar:
-   - **Language / Runtime:** Node
-   - **Branch:** main (GitHub'daki ana dalın adı neyse)
-   - **Root Directory:** boş
-   - **Build Command:** `npm ci`
-   - **Start Command:** `npm start`
-   - **Instance Type / Plan:** **Free**
-5. **Deploy Web Service** düğmesine bas.
-6. İşlem tamamlandığında sana `https://...onrender.com` biçiminde bir adres verilecek.
+1. <https://dashboard.render.com/> sayfasında **New > Web Service** seç.
+2. GitHub deposunu bağla ve doğru dalı (`main` vb.) seç.
+3. Yapılandırma:
 
-## 3. Arkadaşınla dene
+   | Ayar | Değer |
+   | --- | --- |
+   | Runtime | Node |
+   | Build Command | `npm ci` |
+   | Start Command | `npm start` |
+   | Root Directory | Boş (depo kökü) |
+   | Health Check Path | `/health` |
+   | Plan | Hesabına uygun plan; ücretsiz seçenek varsa kullanılabilir |
 
-- Bu adrese gir, **Oda Oluştur** düğmesine tıkla.
-- Oda bağlantısını arkadaşına gönder.
-- Arkadaşın bağlantıya girip aynı odaya katılsın.
-- Bilgisayarını kapatman oyunu kapatmaz. Ancak Render'ın ücretsiz hizmeti bir süre boş kalınca uykuya geçer.
+4. Yayın tamamlandığında Render'ın verdiği `https://...onrender.com` alan adını aç.
+5. Bir cihazdan oda aç, başka cihazdan davet bağlantısıyla katıl.
 
-## Bilmen gereken sınırlar
+## Yayın öncesi kontrol listesi
 
-- Render ücretsiz sunucuyu 15 dakika etkinlik olmadan uykuya alabilir; ilk açılış yaklaşık bir dakika sürebilir.
-- Devam eden aktif WebSocket mesajları, boşta kalma süresini sıfırlar.
-- **Oda ve maç bilgileri yalnızca geçici hafızada tutulur.** Sunucu yeniden başlarsa maç ve odalar kaybolur.
-- Bu bir ilk sürümdür. Kalıcı maç kayıtları, hesaplar, moderasyon, kapsamlı yük testi henüz yoktur.
-- Ücretsiz hizmetlerin kullanım ve süre sınırları bulunur.
+- [ ] Ana sayfa telefonda ve bilgisayarda açılıyor.
+- [ ] Oda aç / davet koduyla katıl çalışıyor.
+- [ ] Bir oyuncunun attığı zar diğer oyuncuda aynı görünüyor.
+- [ ] Hamleleri iki oyuncu da aynı şekilde görüyor.
+- [ ] Mars, 2x kabul ve 2x ret skoru doğru işliyor.
+- [ ] Kazanan sonraki eli başlatıyor.
+- [ ] Odadan Çık iki oyuncuyu ana sayfaya döndürüyor.
+- [ ] Rövanş için iki oyuncunun da onayı gerekiyor.
+- [ ] Telefonun Wi-Fi bağlantısı kesilip açıldığında aynı sekmede yeniden bağlanma deneniyor.
 
-## Yerelde çalıştırma (isteğe bağlı)
+## Önemli sınırlar
 
-Bilgisayarda Node.js yüklüyse proje klasöründe `npm ci` ve ardından `npm start` komutlarını çalıştır. `http://localhost:3000` adresini aç.
-
-## Güncel resmi bilgiler
-
-- https://render.com/docs/deploy-node-express-app
-- https://render.com/docs/free
+- Render veya başka ücretsiz sağlayıcı uygulamayı boşta kaldığında uykuya alabilir; gecikme, yeniden başlatma ve kullanım kısıtları sağlayıcı planına göre değişir. Güncel şartlar için [Render belgelerini](https://render.com/docs/free) kontrol et.
+- Maç bilgileri RAM'de kalır. Sunucu yeniden başlarsa oda ve skor sıfırlanır.
+- Sunucu tek süreç/tek örnek üzerinde çalışacak şekilde tasarlanmıştır. Birden çok sunucu kopyası kullanılıyorsa paylaşımlı oda veri deposu ve Socket.IO adapter eklenmelidir.
+- Herkese açık bir site için canlı cihaz testleri, hata kayıtları, moderasyon ve kötüye kullanım korumaları ayrıca değerlendirilmelidir.

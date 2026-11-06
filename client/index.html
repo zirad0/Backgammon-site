@@ -2,22 +2,37 @@
 <html lang="tr">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Tavla Online</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#101c30" />
+  <meta name="description" content="Arkadaşlarınla ücretsiz, online ve gerçek zamanlı tavla oyna. Oda aç, bağlantını paylaş ve oyuna başla." />
+  <title>Tavla Online — Arkadaşlarınla Canlı Tavla Oyna</title>
+  <meta property="og:title" content="Tavla Online — Arkadaşlarınla Tavla Oyna" />
+  <meta property="og:description" content="Üyelik gerektirmeyen, iki kişilik ücretsiz online tavla. Odanı aç, davetini paylaş, hemen oyna." />
+  <meta property="og:type" content="website" />
+  <link rel="icon" type="image/svg+xml" href="assets/dice/5.svg" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div id="app">
-    <section id="lobbyScreen" class="screen card">
-      <div class="brand"><span data-text="brand">Tavla</span></div>
-      <h1 data-text="lobbyTitle">Oda ile Tavla</h1>
-      <p class="muted" data-text="lobbySubtitle">Sen ve sevgilin için hızlı kurulum: biri oda açsın, diğeri kodla girsin.</p>
+    <section id="lobbyScreen" class="screen lobbyPage">
+      <header class="lobbyNavigation">
+        <a class="lobbyLogo" href="/" aria-label="Tavla Online ana sayfa"><span class="logoDice" aria-hidden="true">⚄</span> Tavla<span>Online</span></a>
+        <span id="connectionStatus" class="connectionStatus"><span class="connectionDot"></span> Bağlanıyor...</span>
+      </header>
+      <div class="lobbyHero">
+        <div class="lobbyEyebrow">ARKADAŞLARINLA CANLI TAVLA</div>
+        <h1>Her yerde. Her zaman.<br /><span>Birlikte tavla.</span></h1>
+        <p>İndirme yok, üyelik yok. Bir oda aç, arkadaşına bağlantıyı gönder, zarları at.</p>
+        <div class="heroChips"><span>⚡ Anında oda</span><span>🎲 Gerçek zamanlı</span><span>🔒 Özel oda kodu</span></div>
+      </div>
 
-      <div class="forms">
-        <div class="panel">
-          <h2 data-text="createRoom">Oda Aç</h2>
+      <div class="forms lobbyForms">
+        <div class="panel lobbyPanel">
+          <div class="lobbyPanelIcon" aria-hidden="true">＋</div>
+          <h2>Oda oluştur</h2>
+          <p class="panelHelp">Kuralları sen belirle, arkadaşını davet et.</p>
           <label data-text="nameLabel">İsim</label>
-          <input id="createName" maxlength="20" placeholder="Egemen" />
+          <input id="createName" maxlength="20" placeholder="Oyuncu adın" autocomplete="nickname" />
           <label data-text="targetScoreLabel">Kaç puanda bitsin?</label>
           <select id="targetScore">
             <option value="3">3</option>
@@ -25,19 +40,27 @@
             <option value="7">7</option>
             <option value="11">11</option>
           </select>
-          <button id="createRoomBtn" class="primary" data-text="createRoom">Oda Aç</button>
+          <button id="createRoomBtn" class="primary lobbyCTA">Oda Aç</button>
         </div>
 
-        <div class="panel">
-          <h2 data-text="joinRoom">Odaya Katıl</h2>
+        <div class="panel lobbyPanel">
+          <div class="lobbyPanelIcon inviteIcon" aria-hidden="true">↗</div>
+          <h2>Odaya katıl</h2>
+          <p class="panelHelp">Davet kodun varsa hemen oyuna gir.</p>
           <label>İsim</label>
-          <input id="joinName" maxlength="20" placeholder="Rakip" />
+          <input id="joinName" maxlength="20" placeholder="Oyuncu adın" autocomplete="nickname" />
           <label data-text="roomCodeLabel">Oda Kodu</label>
-          <input id="roomCodeInput" maxlength="5" placeholder="ABCDE" />
-          <button id="joinRoomBtn" data-text="joinRoom">Odaya Katıl</button>
+          <input id="roomCodeInput" maxlength="5" placeholder="5 haneli oda kodu" autocapitalize="characters" autocomplete="off" />
+          <button id="joinRoomBtn" class="lobbyCTA secondaryCTA">Odaya Katıl</button>
         </div>
       </div>
-      <div id="lobbyMessage" class="message"></div>
+      <div id="lobbyMessage" class="message" role="status" aria-live="polite"></div>
+      <div class="lobbyHow">
+        <div><span class="howIndex">01</span><strong>Oda aç</strong><small>İsmini ve hedef puanı seç.</small></div>
+        <div><span class="howIndex">02</span><strong>Daveti paylaş</strong><small>Oda kodunu veya bağlantıyı gönder.</small></div>
+        <div><span class="howIndex">03</span><strong>Oynamaya başla</strong><small>Rakibin katılınca zarlar hazır.</small></div>
+      </div>
+      <footer class="lobbyFooter">Ücretsiz • İki kişilik özel odalar • Türkçe arayüz</footer>
     </section>
 
     <section id="gameScreen" class="screen hidden">
@@ -47,9 +70,12 @@
           <div class="roomRow">Oda Kodu: <span id="roomCodeLabel">-----</span> <button id="copyRoomBtn" class="tiny" data-text="copy">Kopyala</button></div>
           <div id="roomLinkPreview" class="roomLinkPreview muted"></div>
         </div>
-        <div class="statusBlock">
-          <div id="turnBadge" class="turnBadge" data-text="waitingTurn">Sıra bekleniyor</div>
-          <div id="statusText" class="muted">Bağlantı kuruluyor...</div>
+        <div class="statusActions">
+          <div class="statusBlock">
+            <div id="turnBadge" class="turnBadge" data-text="waitingTurn">Sıra bekleniyor</div>
+            <div id="statusText" class="muted">Bağlantı kuruluyor...</div>
+          </div>
+          <button id="leaveRoomBtn" class="leaveRoomBtn" title="Odadan ayrıl" aria-label="Odadan ayrıl">↗ Odadan Çık</button>
         </div>
       </div>
 
@@ -153,6 +179,7 @@
         <div class="matchModalActions">
           <button id="acceptDoubleBtn" class="primary">Kabul Et</button>
           <button id="declineDoubleBtn" class="resetBtn">Reddet</button>
+          <button id="doubleExitBtn" class="resetBtn modalLeaveBtn">Odadan Çık</button>
         </div>
       </div>
     </div>
@@ -161,8 +188,10 @@
       <div class="roundModalCard matchModalCard">
         <div class="roundModalTitle">Maç Bitti</div>
         <div id="matchModalText" class="roundModalText">Kazanan belli oldu.</div>
+        <p id="rematchStatusText" class="rematchStatusText">Yeni maç için iki oyuncunun onayı gerekir.</p>
         <div class="matchModalActions">
-          <button id="rematchBtn" class="primary">Rövanş</button>
+          <button id="rematchBtn" class="primary">Rövanş İste</button>
+          <button id="matchExitBtn" class="resetBtn">Odadan Çık</button>
         </div>
       </div>
     </div>

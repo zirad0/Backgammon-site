@@ -24,7 +24,28 @@ const io = new Server(server);
 const PORT = Number(process.env.PORT) || 3000;
 const ROOM_IDLE_EXPIRY_MS = 60 * 60 * 1000; // 1 saat boyunca iki oyuncu da yoksa oda silinir.
 const MAX_ROOMS = 200; // Hobi sunucusunu sınırsız oda oluşturmaktan korur.
+const DOUBLE_OFFER_WINDOW_MS = 2700;
 
+function clearGameTimers(game) {
+  if (game.autoRollTimer) clearTimeout(game.autoRollTimer);
+  if (game.moveTimer) clearTimeout(game.moveTimer);
+  game.autoRollTimer = null;
+  game.moveTimer = null;
+  game.diceRolling = false;
+}
+
+function bothPlayersOnline(room) {
+  return !!(room?.players.white?.connected && room?.players.black?.connected);
+}
+
+
+app.disable('x-powered-by');
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
 app.get('/health', (_req, res) => res.status(200).json({ ok: true }));
 app.use(express.static(path.join(__dirname, '..', 'client')));
 
@@ -67,13 +88,16 @@ function findPlayerRoomByToken(playerToken) {
 }
 
 
+function canRoll(room) {
+  const game = room?.game;
+  return !!(game && !game.winner && !game.animating && !game.pendingState &&
+    !game.doubleOffer && bothPlayersOnline(room));
+}
+
 function performAutoRoll(roomCode) {
   const room = rooms.get(roomCode);
-  if (!room) return;
+  if (!canRoll(room)) return;
   const game = room.game;
-  if (game.winner || game.animating || game.pendingState) return;
-  if (!room.players.white || !room.players.black) return;
-
   const rolled = rollDice();
   game.rolledPair = rolled.pair;
   game.dice = rolled.dice;
@@ -81,34 +105,57 @@ function performAutoRoll(roomCode) {
   game.turnStartState = cloneState(game.state);
   game.turnStartDice = [...rolled.dice];
   game.movedThisTurn = false;
-  game.roundSummary = null;
-  game.matchSummary = null;
+  game.diceRolling = false;
   game.autoRollTimer = null;
-
   emitRoomState(roomCode);
 }
 
-
 function maybeStartTurnRoll(roomCode, delay = 900) {
   const room = rooms.get(roomCode);
-  if (!room) return;
+  if (!canRoll(room)) return;
   const game = room.game;
-  if (game.winner || game.animating || game.pendingState) return;
-  if (!room.players.white || !room.players.black) return;
-  const currentPlayer = room.players[game.turn];
-  if (currentPlayer?.autoDice) scheduleAutoRoll(roomCode, delay);
+  if (!room.players[game.turn]?.autoDice) return;
+  // Temasın kalmadığı aşamada otomatik zar, 2x için bir karar penceresi bırakır.
+  const offerWindow = canOfferDouble(room) ? DOUBLE_OFFER_WINDOW_MS : 0;
+  scheduleAutoRoll(roomCode, Math.max(delay, offerWindow));
 }
 
-function scheduleAutoRoll(roomCode, delay = 1200) {
+function scheduleAutoRoll(roomCode, delay = 900) {
   const room = rooms.get(roomCode);
-  if (!room) return;
+  if (!canRoll(room)) return;
   const game = room.game;
-  if (game.autoRollTimer) clearTimeout(game.autoRollTimer);
-  if (game.winner || game.animating || game.pendingState) return;
-  if (!room.players.white || !room.players.black) return;
+  if (game.autoRollTimer || game.diceRolling) return;
 
-  io.to(roomCode).emit('dice:rolling', { color: game.turn, duration: delay });
-  game.autoRollTimer = setTimeout(() => performAutoRoll(roomCode), delay);
+  // Zar animasyonundan ÖNCE bekle: 2x teklifleri animasyonla yarışmasın.
+  game.autoRollTimer = setTimeout(() => {
+    game.autoRollTimer = null;
+    if (rooms.get(roomCode) !== room || !canRoll(room)) return;
+    game.diceRolling = true;
+    io.to(roomCode).emit('dice:rolling', { color: game.turn, duration: 650 });
+    game.autoRollTimer = setTimeout(() => {
+      game.autoRollTimer = null;
+      if (rooms.get(roomCode) === room) performAutoRoll(roomCode);
+    }, 650);
+  }, delay);
+}
+
+function displaceOldSocket(roomCode, player, newSocketId) {
+  if (!player?.socketId || player.socketId === newSocketId) return;
+  const oldSocket = io.sockets.sockets.get(player.socketId);
+  if (oldSocket) {
+    oldSocket.emit('room:session-taken');
+    oldSocket.leave(roomCode);
+  }
+}
+
+function preventMultipleRooms(socket, playerToken, requestedCode = null) {
+  const active = findPlayerRoom(socket.id);
+  const byToken = findPlayerRoomByToken(playerToken);
+  if ((active && active.roomCode !== requestedCode) || (byToken && byToken.roomCode !== requestedCode)) {
+    socket.emit('room:error', 'Önce açık olan odandan ayrılmalısın.');
+    return true;
+  }
+  return false;
 }
 
 function sanitizeName(name, fallback) {
@@ -155,22 +202,26 @@ function pushChatMessage(room, color, name, text) {
 }
 
 function resetRoomForRematch(room) {
-  room.game = createMatch(room.game.targetScore);
+  const previousWinner = room.game.winner;
+  const targetScore = room.game.targetScore;
+  clearGameTimers(room.game);
+  room.game = createMatch(targetScore);
+  room.game.turn = previousWinner || 'white';
 }
 
 function canOfferDouble(room) {
   const game = room?.game;
   if (!room || !game) return false;
-  if (!room.players.white || !room.players.black) return false;
-  if (game.winner || game.animating || game.pendingState) return false;
-  if (game.doubleOffer) return false;
+  if (!bothPlayersOnline(room)) return false;
+  if (game.winner || game.animating || game.pendingState || game.diceRolling) return false;
+  if (game.doubleOffer || game.roundMultiplier !== 1) return false;
   return arePlayersSeparated(game.state);
 }
 
 function awardRoundTo(roomCode, room, winner, { multiplierOverride = null, reasonText = null, forcedPoints = null } = {}) {
   const game = room.game;
   const winnerName = winner === 'white' ? (room.players.white?.name || 'Beyaz') : (room.players.black?.name || 'Siyah');
-  const loser = winner === 'white' ? 'black' : 'white';
+  clearGameTimers(game);
   const computedBasePoints = getRoundPoints(game.state, winner);
   const basePoints = forcedPoints ?? computedBasePoints;
   const multiplier = forcedPoints != null ? 1 : (multiplierOverride || game.roundMultiplier || 1);
@@ -184,9 +235,16 @@ function awardRoundTo(roomCode, room, winner, { multiplierOverride = null, reaso
   pushChatMessage(room, 'system', 'Sistem', `${winnerName} bu eli kazandı ve ${totalPoints} puan aldı.`);
   game.doubleOffer = null;
   game.roundMultiplier = 1;
+  game.pendingState = null;
+  game.dice = [];
+  game.rolledPair = null;
+  game.turnStartDice = [];
+  game.turnStartState = null;
+  game.movedThisTurn = false;
 
   if (game.scores[winner] >= game.targetScore) {
     game.winner = winner;
+    game.rematchVotes = { white: false, black: false };
     game.matchSummary = {
       id: nextSummaryId++,
       text: `${winnerName} maçı kazandı! Rövanş ister misiniz?`
@@ -194,7 +252,7 @@ function awardRoundTo(roomCode, room, winner, { multiplierOverride = null, reaso
   }
 
   game.state = createInitialState();
-  game.turn = loser;
+  game.turn = winner; // Yeni eli kazanan başlatır.
 }
 
 function buildPublicState(roomCode, room) {
@@ -219,7 +277,8 @@ function buildPublicState(roomCode, room) {
       moveOptions,
       canConfirm: !!game.pendingState && (!hasRemainingMoves && (game.movedThisTurn || noMovesAvailable || game.dice.length === 0)),
       hasRolled: !!game.pendingState,
-      waitingForRoll: !game.pendingState,
+      waitingForRoll: !game.pendingState && !game.diceRolling,
+      diceRolling: !!game.diceRolling,
       noMovesAvailable,
       movedThisTurn: game.movedThisTurn,
       roundSummary: game.roundSummary || null,
@@ -228,7 +287,8 @@ function buildPublicState(roomCode, room) {
       roundMultiplier: game.roundMultiplier || 1,
       noContactPhase: arePlayersSeparated(activeState),
       canOfferDouble: canOfferDouble(room),
-      doubleOffer: game.doubleOffer || null
+      doubleOffer: game.doubleOffer || null,
+      rematchVotes: game.rematchVotes || { white: false, black: false }
     },
     chat: room.chat || []
   };
@@ -257,7 +317,10 @@ setInterval(() => {
   const now = Date.now();
   for (const [code, room] of rooms) {
     if ((room.players.white?.connected || room.players.black?.connected)) continue;
-    if (now - room.lastActivityAt > ROOM_IDLE_EXPIRY_MS) rooms.delete(code);
+    if (now - room.lastActivityAt > ROOM_IDLE_EXPIRY_MS) {
+      clearGameTimers(room.game);
+      rooms.delete(code);
+    }
   }
 }, 10 * 60 * 1000).unref();
 
@@ -276,7 +339,9 @@ io.on('connection', (socket) => {
       socket.emit('room:error', 'Güvenli oyuncu anahtarı bulunamadı. Sayfayı yenile.');
       return;
     }
-    const score = Math.max(1, Math.min(15, Number(targetScore) || 5));
+    if (preventMultipleRooms(socket, playerToken)) return;
+    const parsedScore = Number(targetScore);
+    const score = [3, 5, 7, 11].includes(parsedScore) ? parsedScore : 5;
     let roomCode = randomRoomCode();
     while (rooms.has(roomCode)) roomCode = randomRoomCode();
 
@@ -289,6 +354,13 @@ io.on('connection', (socket) => {
   });
 
   socket.on('room:join', (payload = {}) => {
+    const now = Date.now();
+    socket.data.roomJoins = (socket.data.roomJoins || []).filter(t => now - t < 60_000);
+    if (socket.data.roomJoins.length >= 12) {
+      socket.emit('room:error', 'Çok fazla katılma denemesi. Bir dakika sonra yeniden dene.');
+      return;
+    }
+    socket.data.roomJoins.push(now);
     let { roomCode, name, playerToken, autoDice } = payload && typeof payload === 'object' ? payload : {};
     if (typeof playerToken !== 'string' || playerToken.length < 20 || playerToken.length > 100) {
       socket.emit('room:error', 'Güvenli oyuncu anahtarı bulunamadı. Sayfayı yenile.');
@@ -300,32 +372,37 @@ io.on('connection', (socket) => {
       socket.emit('room:error', 'Oda bulunamadı.');
       return;
     }
+    if (preventMultipleRooms(socket, playerToken, roomCode)) return;
 
     const reconnectBlack = sameToken(room.players.black, playerToken);
     const reconnectWhite = sameToken(room.players.white, playerToken);
 
     if (reconnectWhite) {
+      displaceOldSocket(roomCode, room.players.white, socket.id);
       attachPlayer(room.players.white, socket.id, name, playerToken, autoDice);
       socket.join(roomCode);
       socket.emit('room:joined', { roomCode, color: 'white' });
       emitRoomState(roomCode);
+      maybeStartTurnRoll(roomCode);
       return;
     }
 
     if (reconnectBlack) {
+      displaceOldSocket(roomCode, room.players.black, socket.id);
       attachPlayer(room.players.black, socket.id, name, playerToken, autoDice);
       socket.join(roomCode);
       socket.emit('room:joined', { roomCode, color: 'black' });
       emitRoomState(roomCode);
+      maybeStartTurnRoll(roomCode);
       return;
     }
 
-    if (room.players.black && room.players.black.socketId !== socket.id) {
+    if (room.players.black) {
       socket.emit('room:error', 'Bu oda dolu.');
       return;
     }
 
-    room.players.black = attachPlayer(room.players.black || {}, socket.id, name || 'Oyuncu 2', playerToken, autoDice);
+    room.players.black = attachPlayer({}, socket.id, name || 'Oyuncu 2', playerToken, autoDice);
     pushChatMessage(room, 'system', 'Sistem', `${room.players.black.name} odaya katıldı.`);
     socket.join(roomCode);
     socket.emit('room:joined', { roomCode, color: 'black' });
@@ -341,10 +418,13 @@ io.on('connection', (socket) => {
       return;
     }
     const { roomCode, room, color } = found;
+    if (preventMultipleRooms(socket, playerToken, roomCode)) return;
+    displaceOldSocket(roomCode, room.players[color], socket.id);
     attachPlayer(room.players[color], socket.id, null, playerToken, autoDice);
     socket.join(roomCode);
     socket.emit('room:joined', { roomCode, color });
     emitRoomState(roomCode);
+    maybeStartTurnRoll(roomCode);
   });
 
   socket.on('settings:autoDice', (payload = {}) => {
@@ -356,7 +436,7 @@ io.on('connection', (socket) => {
     emitRoomState(roomCode);
     if (room.game.turn === color && !room.game.pendingState && !room.game.winner) {
       if (room.players[color].autoDice) maybeStartTurnRoll(roomCode, 350);
-      else if (room.game.autoRollTimer) {
+      else if (room.game.autoRollTimer && !room.game.diceRolling) {
         clearTimeout(room.game.autoRollTimer);
         room.game.autoRollTimer = null;
       }
@@ -373,9 +453,10 @@ io.on('connection', (socket) => {
     if (game.turn !== color) return;
     if (game.pendingState) return;
     if (!room.players.white || !room.players.black) return;
-    if (room.players[color]?.autoDice) return;
+    if (room.players[color]?.autoDice || game.doubleOffer || game.diceRolling) return;
+    if (!bothPlayersOnline(room)) return;
 
-    scheduleAutoRoll(roomCode, 250);
+    scheduleAutoRoll(roomCode, 0);
   });
 
   socket.on('move:play', (payload = {}) => {
@@ -385,7 +466,7 @@ io.on('connection', (socket) => {
     const { roomCode, room, color } = found;
     const game = room.game;
 
-    if (game.winner || game.animating) return;
+    if (game.winner || game.animating || game.doubleOffer || !bothPlayersOnline(room)) return;
     if (game.turn !== color) return;
     if (!game.pendingState) return;
 
@@ -402,7 +483,9 @@ io.on('connection', (socket) => {
     });
 
     const totalDelay = Math.max(260, chosen.path.length * 280 + 120);
-    setTimeout(() => {
+    game.moveTimer = setTimeout(() => {
+      game.moveTimer = null;
+      if (rooms.get(roomCode) !== room || room.game !== game) return;
       for (const step of chosen.path) {
         game.pendingState = applyMove(game.pendingState, color, step);
         game.dice = game.dice.filter((_, idx) => idx !== step.dieIndex);
@@ -419,7 +502,7 @@ io.on('connection', (socket) => {
     const { roomCode, room, color } = found;
     const game = room.game;
 
-    if (game.winner || game.animating) return;
+    if (game.winner || game.animating || game.doubleOffer || !bothPlayersOnline(room)) return;
     if (game.turn !== color) return;
     if (!game.pendingState) return;
     if (!game.movedThisTurn) return;
@@ -437,7 +520,7 @@ io.on('connection', (socket) => {
     const { roomCode, room, color } = found;
     const game = room.game;
 
-    if (game.winner || game.animating) return;
+    if (game.winner || game.animating || game.doubleOffer || !bothPlayersOnline(room)) return;
     if (game.turn !== color) return;
     if (!game.pendingState) return;
 
@@ -476,6 +559,10 @@ io.on('connection', (socket) => {
     if (game.turn !== color) return;
     if (!canOfferDouble(room)) return;
 
+    if (game.autoRollTimer) {
+      clearTimeout(game.autoRollTimer);
+      game.autoRollTimer = null;
+    }
     game.doubleOffer = { offeredBy: color, multiplier: 2, createdAt: Date.now() };
     const offererName = room.players[color]?.name || 'Oyuncu';
     pushChatMessage(room, 'system', 'Sistem', `${offererName} 2x teklifi gönderdi.`);
@@ -490,8 +577,8 @@ io.on('connection', (socket) => {
     const game = room.game;
     const offer = game.doubleOffer;
 
-    if (!offer) return;
-    if (offer.offeredBy === color) return;
+    if (!offer || !bothPlayersOnline(room)) return;
+    if (offer.offeredBy === color || typeof accept !== 'boolean') return;
 
     const responderName = room.players[color]?.name || 'Oyuncu';
     const offererName = room.players[offer.offeredBy]?.name || 'Oyuncu';
@@ -501,6 +588,7 @@ io.on('connection', (socket) => {
       game.doubleOffer = null;
       pushChatMessage(room, 'system', 'Sistem', `${responderName} 2x teklifini kabul etti. Bu el ${game.roundMultiplier}x oynanacak.`);
       emitRoomState(roomCode);
+      maybeStartTurnRoll(roomCode, 1000);
       return;
     }
 
@@ -517,6 +605,7 @@ io.on('connection', (socket) => {
       reasonText: `${offererName} 2x teklifini gönderdi, ${responderName} kabul etmedi. ${offererName} bu el için 2 puan aldı.`
     });
     emitRoomState(roomCode);
+    if (!game.winner) maybeStartTurnRoll(roomCode);
   });
 
   socket.on('chat:send', (payload = {}) => {
@@ -525,6 +614,10 @@ io.on('connection', (socket) => {
     if (!found) return;
     const { roomCode, room, color } = found;
     const player = room.players[color];
+    const now = Date.now();
+    socket.data.chatTimes = (socket.data.chatTimes || []).filter(t => now - t < 10_000);
+    if (socket.data.chatTimes.length >= 8) return;
+    socket.data.chatTimes.push(now);
     const msg = pushChatMessage(room, color, player?.name || 'Oyuncu', text);
     if (!msg) return;
     io.to(roomCode).emit('chat:message', msg);
@@ -533,12 +626,38 @@ io.on('connection', (socket) => {
   socket.on('match:rematch', () => {
     const found = findPlayerRoom(socket.id);
     if (!found) return;
-    const { roomCode, room } = found;
-    if (!room.players.white || !room.players.black) return;
-    resetRoomForRematch(room);
-    pushChatMessage(room, 'system', 'Sistem', 'Rövanş başladı. Skorlar sıfırlandı.');
-    emitRoomState(roomCode);
-    maybeStartTurnRoll(roomCode, 900);
+    const { roomCode, room, color } = found;
+    if (!bothPlayersOnline(room) || !room.game.winner) return;
+    room.game.rematchVotes[color] = true;
+    if (room.game.rematchVotes.white && room.game.rematchVotes.black) {
+      resetRoomForRematch(room);
+      pushChatMessage(room, 'system', 'Sistem', 'İki oyuncu da rövanşı kabul etti. Yeni maç başladı.');
+      emitRoomState(roomCode);
+      maybeStartTurnRoll(roomCode);
+    } else {
+      emitRoomState(roomCode);
+    }
+  });
+
+  socket.on('room:leave', (payload = {}) => {
+    const playerToken = typeof payload?.playerToken === 'string' ? payload.playerToken : null;
+    const found = findPlayerRoom(socket.id) || findPlayerRoomByToken(playerToken);
+    if (!found) {
+      socket.emit('room:closed', { reason: 'Odadan ayrıldın.' });
+      return;
+    }
+    const { roomCode, room, color } = found;
+    const name = room.players[color]?.name || 'Oyuncu';
+    clearGameTimers(room.game);
+    // Yarım kalmış maçın sahipsiz bir oyuncuyla devam etmesini önle.
+    rooms.delete(roomCode);
+    io.to(roomCode).emit('room:closed', {
+      reason: `${name} odadan ayrıldı. Oda kapatıldı; yeni bir oda açabilirsiniz.`
+    });
+    for (const player of [room.players.white, room.players.black]) {
+      const memberSocket = player?.socketId && io.sockets.sockets.get(player.socketId);
+      if (memberSocket) memberSocket.leave(roomCode);
+    }
   });
 
   socket.on('disconnect', () => {
@@ -547,10 +666,16 @@ io.on('connection', (socket) => {
 
     const { roomCode, room, color } = found;
     if (room.players[color]) room.players[color].connected = false;
+    if (room.game.doubleOffer) {
+      room.game.doubleOffer = null;
+      pushChatMessage(room, 'system', 'Sistem', 'Bağlantı kesildiği için bekleyen 2x teklifi iptal edildi.');
+    }
+    // Oyuncu çevrimdışıyken zarlar veya teklifler kendiliğinden ilerlemez.
     if (room.game.autoRollTimer) {
       clearTimeout(room.game.autoRollTimer);
       room.game.autoRollTimer = null;
     }
+    room.game.diceRolling = false;
     emitRoomState(roomCode);
   });
 });

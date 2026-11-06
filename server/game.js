@@ -40,8 +40,11 @@ function createMatch(targetScore = 5) {
     matchSummary: null,
     animating: false,
     autoRollTimer: null,
+    moveTimer: null,
+    diceRolling: false,
     roundMultiplier: 1,
-    doubleOffer: null
+    doubleOffer: null,
+    rematchVotes: { white: false, black: false }
   };
 }
 
@@ -310,7 +313,7 @@ function isGameWon(state) {
 
 function getRoundPoints(state, winner) {
   const loser = winner === 'white' ? 'black' : 'white';
-  return state.off[loser] === 0 ? 3 : 1;
+  return state.off[loser] === 0 ? 2 : 1; // Türk tavlasında mars iki puandır.
 }
 
 function arePlayersSeparated(state) {

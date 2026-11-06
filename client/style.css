@@ -801,3 +801,88 @@ body[data-theme="dark"] .doubleOfferBtn { background: linear-gradient(180deg, #5
     height: 28px;
   }
 }
+/* Launch-ready lobby */
+#app:has(.lobbyPage:not(.hidden)) { max-width: 1080px; margin-top: 0; }
+.lobbyPage {
+  padding: 0 8px 38px;
+  min-height: 100vh;
+  background: transparent;
+}
+.lobbyNavigation { display: flex; justify-content: space-between; align-items: center; gap: 15px; padding: 21px 0; }
+.lobbyLogo { display: inline-flex; align-items: center; gap: 8px; color: #15243d; text-decoration: none; font-weight: 900; font-size: 24px; letter-spacing: -.9px; }
+.lobbyLogo > span:last-child { color: #346ce6; margin-left: -8px; }
+.logoDice { display: inline-flex; align-items: center; justify-content: center; color: white; background: #346ce6; border-radius: 12px; width: 37px; height: 37px; font-size: 28px; margin-right: 4px; }
+.connectionStatus { display: inline-flex; align-items: center; gap: 9px; border: 1px solid #d5e8df; background: #f1faf5; color: #237551; border-radius: 100px; font-weight: 700; padding: 8px 13px; font-size: 13px; }
+.connectionStatus.offline { color: #985b20; background: #fff5e8; border-color: #f1dcc1; }
+.connectionDot { display: inline-block; width: 9px; height: 9px; background: #25a86e; border-radius: 50%; box-shadow: 0 0 0 4px #d5f3e5; }
+.connectionStatus.offline .connectionDot { background: #d39337; box-shadow: 0 0 0 4px #ffebce; }
+.lobbyHero { padding: 66px 20px 28px; text-align: center; }
+.lobbyEyebrow { display: inline-block; color: #3064c8; background: #e8f0ff; padding: 9px 15px; border-radius: 100px; font-size: 12px; font-weight: 900; letter-spacing: 1.4px; }
+.lobbyHero h1 { margin: 20px auto 17px; max-width: 820px; line-height: 1.09; font-size: clamp(39px, 6.5vw, 70px); letter-spacing: -2px; color: #172842; }
+.lobbyHero h1 span { color: #346ce6; }
+.lobbyHero > p { font-size: 18px; line-height: 1.7; color: #5f7087; margin: 0 auto; max-width: 580px; }
+.heroChips { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 24px; }
+.heroChips span { background: #fff; border: 1px solid #e0e8f3; border-radius: 100px; font-size: 13px; color: #526581; font-weight: 700; padding: 9px 14px; }
+.lobbyForms { margin: 26px auto 0; max-width: 930px; gap: 22px; }
+.lobbyPanel { position: relative; background: #fff; padding: 30px; border-radius: 24px; border: 1px solid #e5eaf4; box-shadow: 0 14px 34px rgba(36, 63, 103, .07); }
+.lobbyPanelIcon { display: grid; place-items: center; width: 46px; height: 46px; background: #e7efff; color: #326bea; font-size: 30px; border-radius: 14px; margin-bottom: 16px; font-weight: 500; }
+.lobbyPanelIcon.inviteIcon { background: #e8f7f1; color: #138458; }
+.lobbyPanel h2 { margin: 0 0 7px; font-size: 26px; letter-spacing: -.5px; }
+.panelHelp { margin: 0 0 19px; color: #77849b; font-size: 14px; }
+.lobbyPanel label { color: #43546e; font-weight: 750; margin-top: 14px; }
+.lobbyPanel input, .lobbyPanel select { min-height: 49px; border: 1px solid #dce4f1; background: #f9fbff; }
+.lobbyPanel input:focus, .lobbyPanel select:focus { outline: 3px solid #c9daff; border-color: #487be6; }
+.lobbyPanel .lobbyCTA { margin: 22px 0 0; width: 100%; min-height: 51px; color: #fff; font-weight: 800; }
+.lobbyPanel .secondaryCTA { background: #193450; }
+.lobbyPage .message { text-align: center; margin-top: 18px; min-height: 22px; }
+.lobbyHow { max-width: 930px; margin: 38px auto 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; }
+.lobbyHow > div { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; padding: 10px; }
+.lobbyHow strong { font-size: 15px; color: #253c58; }
+.lobbyHow small { color: #77849b; line-height: 1.5; }
+.howIndex { color: #346ce6; background: #e5edfc; font-weight: 900; font-size: 12px; padding: 8px 10px; border-radius: 9px; }
+.lobbyFooter { text-align: center; margin-top: 35px; font-size: 12px; color: #8795a7; }
+.statusActions { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; justify-content: flex-end; }
+.leaveRoomBtn { background: #fff1f2; border: 1px solid #f6d4d8; color: #a83b4c; font-size: 13px; padding: 10px 13px; min-height: 38px; white-space: nowrap; }
+.leaveRoomBtn:hover { background: #ffe5e8; }
+.rematchStatusText { color: var(--muted); text-align: center; margin: 0 0 15px; font-size: 14px; }
+.matchModalActions { flex-wrap: wrap; align-items: center; gap: 12px; }
+.matchModalActions button { margin: 0; }
+#matchExitBtn { background: #f8e8eb; color: #aa3c4c; }
+#lobbyScreen .brand { display: none; }
+@media (max-width: 860px) {
+  #app:has(.lobbyPage:not(.hidden)) { padding: 0 18px; }
+  .lobbyPage { padding: 0 0 25px; }
+  .lobbyNavigation { padding: 15px 0; }
+  .lobbyHero { padding-top: 36px; }
+  .lobbyHero h1 { letter-spacing: -1.1px; }
+  .lobbyForms { grid-template-columns: 1fr; gap: 15px; max-width: 530px; }
+  .lobbyPanel { padding: 22px; }
+  .topbar { align-items: flex-start; }
+  .statusActions { flex-direction: column; align-items: flex-end; gap: 7px; }
+}
+@media (max-width: 480px) {
+  .lobbyHero { padding: 27px 0 10px; }
+  .lobbyHero > p { font-size: 15px; }
+  .lobbyLogo { font-size: 19px; }
+  .logoDice { width: 32px; height: 32px; }
+  .connectionStatus { font-size: 10px; padding: 6px 9px; }
+  .lobbyPanel h2 { font-size: 23px; }
+  .lobbyHow { gap: 4px; }
+  .lobbyHow > div { padding: 5px 1px; }
+  .lobbyHow small { font-size: 11px; }
+  .topbar .roomRow { flex-wrap: wrap; gap: 5px; }
+  .leaveRoomBtn { font-size: 11px; padding: 7px 9px; }
+  .statusBlock { max-width: 170px; }
+}
+
+@media (max-width: 640px) {
+  .controlsRow { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .controlsRow > *, .confirmPanel, .dicePanel, .chatPanel { min-width: 0; }
+  .confirmButtons { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .confirmButtons button { min-width: 0; padding-inline: 6px; overflow-wrap: anywhere; }
+  .chatComposer { grid-template-columns: minmax(0, 1fr) auto; }
+  .chatComposer input { min-width: 0; }
+  .doubleStatusText { overflow-wrap: anywhere; }
+}
+
+.modalLeaveBtn { background: #faebed; color: #ac4353; }
