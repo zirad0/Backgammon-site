@@ -37,6 +37,9 @@ const state = {
   isSpectator: false,
   account: null,
   authMode: 'login',
+  friends: { friends: [], incoming: [], outgoing: [] },
+  friendResults: [],
+  friendInvites: [],
   theme: storedPrefs.theme || 'classic',
   skin: storedPrefs.skin || 'classic',
   autoDice: storedPrefs.autoDice !== false,
@@ -228,6 +231,7 @@ function renderAccount() {
   const loggedIn = !!state.account?.user;
   accountGuest?.classList.toggle('hidden', loggedIn);
   accountSignedIn?.classList.toggle('hidden', !loggedIn);
+  $('friendsSection')?.classList.toggle('hidden', !loggedIn);
   if (loggedIn) {
     const { user, stats = {} } = state.account;
     $('profileUsername').textContent = `@${user.username}`;
@@ -245,6 +249,13 @@ function renderAccount() {
     input.value = loggedIn ? state.account.user.username : '';
     input.placeholder = loggedIn ? 'Hesap adın' : 'Oyuncu adın';
   }
+}
+function resetFriendsUI() {
+  state.friends = { friends: [], incoming: [], outgoing: [] };
+  state.friendResults = [];
+  state.friendInvites = [];
+  $('friendsSearchInput').value = '';
+  renderFriends();
 }
 function setAuthMode(mode) {
   state.authMode = mode === 'register' ? 'register' : 'login';
@@ -276,8 +287,12 @@ async function refreshAccount() {
     if (!response.ok) throw new Error('Hesap bilgileri alınamadı.');
     const result = await response.json();
     if (requestGeneration !== authRefreshGeneration) return;
+    const oldId = state.account?.user?.id || null;
     state.account = result.authenticated ? result : null;
     renderAccount();
+    if (oldId !== (state.account?.user?.id || null) && socket.connected) {
+      socket.disconnect(); socket.connect();
+    }
     if (socket.connected) requestMyHistory();
   } catch { // Bağlantı veya veritabanı kısa süreli kesilmiş olabilir.
     if (authMessage) authMessage.textContent = 'Hesap bilgileri şu anda alınamadı.';
@@ -296,6 +311,7 @@ authForm?.addEventListener('submit', async (event) => {
     });
     authRefreshGeneration++;
     state.account = result;
+    resetFriendsUI();
     authPassword.value = '';
     renderAccount();
     // Socket.IO ilk el sıkışma çerezini yenilesin; güvenli hesap kimliği yalnızca sunucuda doğrulanır.
@@ -311,6 +327,7 @@ authLogoutBtn?.addEventListener('click', async () => {
     await accountRequest('/api/auth/logout');
     authRefreshGeneration++;
     state.account = null;
+    resetFriendsUI();
     renderAccount();
     socket.disconnect();
     socket.connect();
@@ -656,6 +673,171 @@ function renderMatchHistory(items = []) {
   }
 }
 
+function friendNotice(text, warning = false) {
+  const el = $('friendsMessage');
+  if (el) { el.textContent = text; el.style.color = warning ? '#b23b47' : '#25774b'; }
+  showToast(text, warning ? 'warning' : 'success');
+}
+function friendButton(text, className, handler, disabled = false) {
+  const button = document.createElement('button');
+  button.type = 'button'; button.textContent = text;
+  button.className = className;
+  button.disabled = disabled || !socket.connected;
+  button.addEventListener('click', handler);
+  return button;
+}
+function friendCard(entry, variant) {
+  const card = document.createElement('div');
+  card.className = 'friendCard';
+  const info = document.createElement('div'); info.className = 'friendCardInfo';
+  const name = document.createElement('strong'); name.textContent = `@${entry.user.username}`;
+  const meta = document.createElement('small');
+  meta.textContent = entry.online ? '● Çevrimiçi' : '○ Çevrimdışı';
+  meta.className = entry.online ? 'friendOnline' : 'friendOffline';
+  info.append(name, meta);
+  if (variant === 'friend') {
+    const stats = document.createElement('small');
+    stats.textContent = `${entry.stats?.wins || 0} galibiyet · ${entry.stats?.games || 0} maç`;
+    info.append(stats);
+  }
+  const actions = document.createElement('div'); actions.className = 'friendActions';
+  const id = entry.user.id;
+  if (variant === 'friend') {
+    actions.append(
+      friendButton('Profil', 'friendOutlineBtn', () => socket.emit('friends:profile', { userId: id })),
+      friendButton('🎮 Davet et', 'friendMainBtn', () => socket.emit('friends:invite', {
+        userId: id, playerToken: state.me.playerToken, targetScore: targetScoreSelect.value, autoDice: state.autoDice
+      }), !entry.online),
+      friendButton('Sil', 'friendDangerBtn', () => {
+        if (window.confirm(`${entry.user.username} arkadaşlıktan çıkarılsın mı?`))
+          socket.emit('friends:remove', { userId: id });
+      })
+    );
+    if (entry.spectateRoomCode) {
+      actions.append(friendButton('👁 İzle', 'friendOutlineBtn', () => watchRoom(entry.spectateRoomCode)));
+    }
+  } else if (variant === 'incoming') {
+    actions.append(
+      friendButton('Kabul et', 'friendMainBtn', () => socket.emit('friends:respond', { userId: id, accept: true })),
+      friendButton('Reddet', 'friendOutlineBtn', () => socket.emit('friends:respond', { userId: id, accept: false }))
+    );
+  } else if (variant === 'outgoing') {
+    actions.append(friendButton('İptal et', 'friendOutlineBtn', () => socket.emit('friends:remove', { userId: id })));
+  } else if (variant === 'search') {
+    const status = entry.status;
+    if (status === 'none') actions.append(friendButton('Arkadaş ekle', 'friendMainBtn', () => socket.emit('friends:request', { userId: id })));
+    else if (status === 'incoming') actions.append(friendButton('Kabul et', 'friendMainBtn', () => socket.emit('friends:respond', { userId: id, accept: true })));
+    else {
+      const label = document.createElement('small');
+      label.textContent = status === 'friends' ? '✓ Arkadaşsınız' : 'İstek bekleniyor';
+      actions.append(label);
+    }
+  }
+  card.append(info, actions);
+  return card;
+}
+function fillFriendList(elementId, items, variant, emptyText) {
+  const container = $(elementId);
+  if (!container) return;
+  container.replaceChildren();
+  if (!items.length) {
+    const p = document.createElement('p'); p.className = 'friendsEmpty'; p.textContent = emptyText;
+    container.append(p); return;
+  }
+  for (const entry of items) if (entry?.user) container.append(friendCard(entry, variant));
+}
+function renderFriends() {
+  const { friends = [], incoming = [], outgoing = [] } = state.friends;
+  if ($('friendsCount')) $('friendsCount').textContent = String(friends.length);
+  if ($('friendsIncomingCount')) $('friendsIncomingCount').textContent = String(incoming.length);
+  fillFriendList('friendsList', friends, 'friend', 'Henüz arkadaşın yok. Oyuncu ara ve istek gönder.');
+  fillFriendList('friendsIncomingList', incoming, 'incoming', 'Gelen istek yok.');
+  fillFriendList('friendsOutgoingList', outgoing, 'outgoing', 'Bekleyen istek yok.');
+  fillFriendList('friendsSearchResults', state.friendResults, 'search', '');
+  const invites = $('friendsInvitationsList');
+  $('friendsInvitationsBlock')?.classList.toggle('hidden', state.friendInvites.length === 0);
+  if (invites) {
+    invites.replaceChildren();
+    for (const invite of state.friendInvites) {
+      const card = document.createElement('div'); card.className = 'friendCard';
+      const info = document.createElement('div'); info.className = 'friendCardInfo';
+      const username = document.createElement('strong');
+      username.textContent = `@${invite.from?.username || 'Oyuncu'} seni maça davet etti`;
+      const meta = document.createElement('small');
+      meta.textContent = `${invite.targetScore || 5} puan · Oda ${invite.roomCode}`;
+      info.append(username, meta);
+      const actions = document.createElement('div'); actions.className = 'friendActions';
+      actions.append(
+        friendButton('Katıl', 'friendMainBtn', () => socket.emit('friends:invite:respond', { inviteId: invite.id, accept: true })),
+        friendButton('Reddet', 'friendOutlineBtn', () => socket.emit('friends:invite:respond', { inviteId: invite.id, accept: false }))
+      );
+      card.append(info, actions); invites.append(card);
+    }
+  }
+}
+function searchFriends() {
+  if (!state.account?.user || !socket.connected) return;
+  const query = $('friendsSearchInput').value.trim();
+  if (query.length < 2) {
+    state.friendResults = []; renderFriends();
+    return friendNotice('Arama için en az 2 karakter yaz.', true);
+  }
+  socket.emit('friends:search', { query });
+}
+$('friendsSearchBtn')?.addEventListener('click', searchFriends);
+$('friendsRefreshBtn')?.addEventListener('click', () => socket.emit('friends:list'));
+$('friendsSearchInput')?.addEventListener('keydown', event => {
+  if (event.key === 'Enter') { event.preventDefault(); searchFriends(); }
+});
+$('friendProfileCloseBtn')?.addEventListener('click', () => $('friendProfileModal').classList.add('hidden'));
+$('friendProfileModal')?.addEventListener('click', event => {
+  if (event.target === $('friendProfileModal')) $('friendProfileModal').classList.add('hidden');
+});
+socket.on('friends:state', data => {
+  if (!state.account?.user) return;
+  state.friends = data || { friends: [], incoming: [], outgoing: [] };
+  const statuses = new Map();
+  for (const type of ['friends', 'incoming', 'outgoing'])
+    for (const entry of state.friends[type] || []) statuses.set(entry.user.id, type);
+  state.friendResults = state.friendResults.map(entry => ({
+    ...entry, status: ({ friends: 'friends', incoming: 'incoming', outgoing: 'outgoing' })[statuses.get(entry.user.id)] || 'none'
+  }));
+  renderFriends();
+});
+socket.on('friends:results', data => {
+  state.friendResults = Array.isArray(data) ? data : [];
+  renderFriends();
+});
+socket.on('friends:invitations', data => {
+  state.friendInvites = Array.isArray(data) ? data : [];
+  renderFriends();
+  if (state.friendInvites.length) showToast(`🎮 ${state.friendInvites.length} oyun davetin var!`);
+});
+socket.on('friends:invite:sent', data => friendNotice(`${data?.username || 'Arkadaşın'} davet edildi; odada bekliyorsun.`));
+socket.on('friends:invite:ready', ({ roomCode } = {}) => { if (roomCode) joinRoom(roomCode); });
+socket.on('friends:error', message => friendNotice(message || 'Arkadaşlık işlemi başarısız.', true));
+socket.on('friends:profile', data => {
+  if (!data?.user) return;
+  $('friendProfileTitle').textContent = `@${data.user.username}`;
+  $('friendProfileOnline').textContent = data.online ? '● Çevrimiçi' : '○ Çevrimdışı';
+  $('friendProfileStats').replaceChildren();
+  for (const [label, value] of [['Maç', data.stats?.games || 0], ['Galibiyet', data.stats?.wins || 0],
+    ['Mağlubiyet', data.stats?.losses || 0], ['Kazanma', `%${data.stats?.winRate || 0}`]]) {
+    const box = document.createElement('div');
+    const strong = document.createElement('strong'); strong.textContent = String(value);
+    const small = document.createElement('small'); small.textContent = label;
+    box.append(strong, small); $('friendProfileStats').append(box);
+  }
+  const list = $('friendProfileHistory'); list.replaceChildren();
+  for (const match of data.recentMatches || []) {
+    const row = document.createElement('p');
+    row.textContent = `${match.players?.white || 'Beyaz'} – ${match.players?.black || 'Siyah'} · ${match.scores?.white ?? 0}:${match.scores?.black ?? 0}`;
+    list.append(row);
+  }
+  if (!list.children.length) list.textContent = 'Henüz kaydedilmiş maç yok.';
+  $('friendProfileModal').classList.remove('hidden');
+});
+
 function createRoom() {
   const name = createName.value.trim() || 'Oyuncu 1';
   state.me.name = name;
@@ -808,6 +990,7 @@ socket.on('connect', () => {
   renderConnectionStatus();
   socket.emit('rooms:request');
   requestMyHistory();
+  if (state.account?.user) socket.emit('friends:list');
   if (state.isSpectator && state.me.roomCode && !state.suppressReconnect) {
     state.watchPending = true;
     socket.emit('viewer:watch', { roomCode: state.me.roomCode });
@@ -819,6 +1002,7 @@ socket.on('disconnect', () => {
   renderConnectionStatus();
   state.publicRooms = [];
   state.liveMatches = [];
+  renderFriends();
   renderPublicRooms();
   renderLiveMatches();
   if (state.me.roomCode) statusText.textContent = 'Bağlantı kesildi. Yeniden bağlanılıyor...';

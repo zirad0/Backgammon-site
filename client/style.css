@@ -1291,3 +1291,67 @@ html { min-width: 0; }
 #gameScreen.spectatorMode .chatPanel { display:none !important; }
 #gameScreen.spectatorMode .controlsRow { grid-template-columns:minmax(0,1fr); }
 #gameScreen.spectatorMode .dicePanel { max-width:340px; }
+
+/* v17 — Hesaba bağlı arkadaşlar, istekler, canlı durum ve oyun davetleri */
+.friendsSection {
+  max-width: 1050px;
+  margin: 23px auto 0;
+  padding: clamp(16px, 2.5vw, 28px);
+  background: #fff;
+  border: 1px solid #dfe7f4;
+  border-radius: 24px;
+  box-shadow: 0 14px 36px rgba(36, 63, 103, .05);
+}
+.friendsHeading { display: flex; justify-content: space-between; align-items: start; flex-wrap: wrap; gap: 15px; }
+.friendsHeading h2 { color: #14253e; margin: 8px 0; font-size: clamp(21px, 3.4vw, 27px); }
+.friendsHeading p { color: #667991; margin: 0 0 14px; line-height: 1.6; }
+.friendsSearchArea { padding: 12px 0 18px; }
+.friendsSearchArea > label { display: block; margin-bottom: 8px; color: #40516d; font-weight: 700; }
+.friendsSearchRow { display: flex; gap: 9px; }
+.friendsSearchRow input { min-width: 0; flex: 1; margin: 0; }
+.friendsSearchRow button { width: auto; padding: 11px 20px; margin: 0; }
+.friendsColumns { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.friendsColumn { min-width: 0; }
+.friendsColumn h3, .friendsInvitationsBlock h3 { color: #253c58; font-size: 18px; margin: 15px 0 12px; }
+.friendsColumn h3 span { color: #346ce6; }
+.friendsSubheading { margin-top: 24px !important; }
+.friendsCards { display: grid; gap: 9px; }
+.friendsSearchArea .friendsCards:not(:empty) { margin-top: 12px; }
+.friendCard { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; background: #f8faff; border: 1px solid #e4eaf6; border-radius: 15px; }
+.friendCardInfo { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 5px; }
+.friendCardInfo strong { overflow-wrap: anywhere; font-size: 15px; color: #1c304b; }
+.friendCardInfo small { color: #74849a; font-size: 12px; }
+.friendCardInfo .friendOnline { color: #218454; font-weight: 700; }
+.friendCardInfo .friendOffline { color: #8795a5; }
+.friendActions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.friendActions button { width: auto; margin: 0; min-height: 35px; padding: 7px 10px; border-radius: 9px; white-space: nowrap; font-size: 12px; }
+.friendMainBtn { background: #367cff; color: white; }
+.friendOutlineBtn { color: #244a79; background: #e9effa; }
+.friendDangerBtn { color: #a53b4e; background: #ffedf0; }
+.friendActions button:disabled { cursor: not-allowed; opacity: .4; }
+.friendsInvitationsBlock { padding: 14px; border: 1px solid #bbd2ff; background: #f1f6ff; border-radius: 17px; margin-bottom: 14px; }
+.friendsEmpty { color: #7c8ba0; margin: 0; font-size: 14px; padding: 10px 2px; }
+.friendsMessage { color: #26784d; min-height: 20px; font-size: 13px; }
+.friendProfileCard { width: min(510px, calc(100vw - 24px)); text-align: left; max-height: 90dvh; overflow-y: auto; }
+.friendProfileCard h2 { overflow-wrap: anywhere; margin: 0 0 8px; }
+.friendProfileCard h3 { font-size: 17px; }
+.friendProfileStats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 19px 0; }
+.friendProfileStats > div { display: flex; flex-direction: column; align-items: center; padding: 13px 4px; gap: 5px; border-radius: 12px; background: #f2f6fc; }
+.friendProfileStats strong { font-size: 23px; }
+.friendProfileStats small { color: #758499; font-size: 11px; }
+.friendProfileHistory { max-height: 180px; overflow-y: auto; font-size: 13px; color: #52647e; }
+.friendProfileHistory p { padding: 8px 2px; border-bottom: 1px solid #edf0f5; }
+.friendProfileCard button { width: 100%; }
+@media (max-width: 760px) {
+  .friendsColumns { grid-template-columns: 1fr; gap: 8px; }
+  .friendsSection { padding: 17px; }
+  .friendCard { flex-direction: column; align-items: stretch; }
+  .friendActions { justify-content: flex-start; }
+  .friendActions button { white-space: normal; }
+}
+@media (max-width: 280px) {
+  .friendsSection { padding: 10px; }
+  .friendsSearchRow { flex-direction: column; }
+  .friendsSearchRow button { width: 100%; }
+  .friendProfileStats { grid-template-columns: repeat(2, 1fr); }
+}

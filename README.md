@@ -1,27 +1,21 @@
-# Tavla Online v16 — Seyirci Modu + Hesaplar ve Profiller
+# Tavla Online v17 — Arkadaşlık Sistemi
 
-Node.js 20+ / Express / Socket.IO / PostgreSQL tabanlı iki kişilik çevrimiçi tavla. v14'teki mobil/4K düzeni, herkese açık ve özel odalar, 2x teklifleri, sohbet, rövanş, sunucu doğrulamalı zar ve hamleler, 15 dakikalık geri bağlanma ve PostgreSQL kayıt altyapısı korunur.
+Node.js 20+, Express, Socket.IO ve PostgreSQL ile iki kişilik online tavla. **v16'daki oyun, spectator, responsive, profil, hesap, maç geçmişi, bağlantı kurtarma, public/private oda ve hile kontrolü özellikleri korunur.**
 
-## v16 yenilikleri — Canlı maç izleme
+## Yeni: Arkadaşlar ve oyun davetleri
 
-- **Oda oluştururken izin:** "👁 İzleyicilere izin ver" kutusu varsayılan olarak **kapalıdır**. Oda herkese açık ya da özel olabilir; seyirci izni ayrıca seçilir.
-- **Canlı maç listesi:** Ana menüdeki **İzlenebilir canlı maçlar** bölümünde yalnızca oyun başlamış, herkese açık **ve** izleme izni açık maçlar görünür. Oyuncu adları, skor, hedef puan ve anlık seyirci sayısı gösterilir. Kazanılan maçlar listeden kalkar. Normal oda listesi eskisi gibi yalnızca rakip bekleyen odaları gösterir.
-- **Özel oda izleme:** İzleme izni açık özel maçlar **hiçbir zaman listelenmez**. Kod sahibi kişiler "Oda Koduyla Maçı İzle" düğmesiyle izleyebilir.
-- **Salt-okunur:** Oyuncu rolünden ayrı `viewer:watch` / `viewer:leave` işlemleri kullanılır. İzleyici zar atamaz, taş oynatamaz, hamle onaylayamaz, 2x, rövanş, sohbet veya odayı kapatma işlemi yapamaz. Yetkiler **sunucu tarafından** kontrol edilir.
-- **Gizlilik:** Seyirciler canlı tahta, zar animasyonları, skorlar ve oyuncu adlarını görür; özel oyun sohbetini veya geçerli hamle listelerini almaz.
-- **Bağlantı kurtarma:** İzleyici internet bağlantısı kesilince açık maçı tekrar izlemeye bağlanır. İzleyicinin çıkışı **oyunu kapatmaz**. Oda kapanırsa izleyiciler bilgilendirilir.
-- **Sınır:** Her odada en fazla **60 eşzamanlı seyirci** bulunabilir. Bu sürümde yayın gecikmesi/geriye sarma yok; yalnızca canlı görüntü vardır.
-- **Veri uyumluluğu:** v15 PostgreSQL kayıt biçimi korunur; `allowSpectators` alanı eklenir. Eski odalar güvenli varsayılan olarak izlemeye kapalıdır. Seyirci oturumları kalıcı kayda yazılmaz, yeniden bağlanarak izlemeye devam eder.
+Kayıtlı hesapla oturum açınca ana menüde **Arkadaşlar ve davetler** bölümü görünür:
 
-## v15 yenilikleri
+- **Kullanıcı arama:** Kullanıcı adının en az 2 harfiyle arama; en çok 10 eşleşme. Kendin sonuçlarda görünmezsin.
+- **Arkadaşlık isteği:** Gönderme, gelen isteği kabul veya reddetme, bekleyen isteği iptal etme, arkadaşlıktan çıkarma.
+- **Çevrimiçi durum:** Kullanıcının geçerli oturumlu aktif Socket.IO bağlantılarına göre anlık çevrimiçi/çevrimdışı işareti.
+- **Profil:** Arkadaşın istatistiklerini ve son maç skorlarını görebilme; diğer oyuncuların hesabıyla izinsiz erişim yok.
+- **Oyun daveti:** Çevrimiçi arkadaşını davet et; oda sahibi henüz rakip bekliyorsa o odaya davet gider. Açık odan yoksa sistem senin adına **özel, seyirciye kapalı** bir oda açar. Arkadaşın daveti kabul ederek odaya katılır; ret de mümkündür.
+- **Arkadaş maçını izleme:** Arkadaşın seyirci izni açık aktif maç yapıyorsa arkadaş kartındaki “İzle” düğmesiyle izleyebilirsin. Özel maçlar genel listede gösterilmez.
+- **Kalıcı arkadaşlık:** İstekler ve onaylanmış arkadaşlıklar v16'yla uyumlu PostgreSQL snapshot kaydının `friends` alanında saklanır. Ek tablo/migrasyon gerektirmez.
+- **Davet süresi:** Davetler 5 dakika geçerlidir, sunucu yeniden başlatıldığında sıfırlanır. Oda kapanırsa veya rakip katılırsa eski davetler geçersiz olur.
 
-- **Ücretsiz kayıt ve giriş:** 3–20 karakterlik, İngilizce harf/rakam/alt çizgi içeren kullanıcı adı ve en az 8 karakterlik şifre. Kullanıcı adları büyük/küçük harfe duyarsız şekilde benzersizdir.
-- **Misafir olarak oynama:** Kayıt/giriş zorunlu değil; önceki oda kurma ve katılma akışları devam eder.
-- **Profil:** Hesap adı, tamamlanan maç sayısı, galibiyet, mağlubiyet ve galibiyet yüzdesi. Geçmiş maçlar hesap kimliğiyle saklandığı için aynı hesaba başka cihazdan girince yeniden görünür.
-- **Kayıtlı isim koruması:** Misafir oyuncu, kayıtlı kullanıcı adını kullanamaz. Hesaplı oyuncunun oda içindeki adını yalnızca sunucu belirler; tarayıcıdan sahte ad gönderilemez.
-- **Bağlantı kurtarma:** Kayıtlı oyuncular yeni bir cihazda veya yeni sekmede aynı hesaba giriş yapıp bağlı oldukları açık maça geri dönebilir. Misafirler mevcut gizli sekme tokenına ihtiyaç duyar.
-- **Güvenlik:** Şifreler rastgele tuz ile `crypto.scrypt` üzerinden türetilmiş özetle tutulur. Oturum tokenları kriptografik rastgele üretilir, sunucuda sadece SHA-256 özeti kaydedilir. Tarayıcıya `HttpOnly; Secure` (üretimde); `SameSite=Strict` çerezi verilir. JSON/same-origin kontrolü ve temel giriş denemesi sınırlaması uygulanır.
-- **v14 uyumluluğu:** PostgreSQL `tavla_snapshots` JSONB kaydının mevcut biçimi korunur; `users` ve `sessions` alanları eklenir. v14'ün mevcut odaları ve maç geçmişi yeni sürüme taşınır. Hesap açılmadan önceki eski **misafir** maçları otomatik olarak yeni hesapla birleştirilmez.
+Misafirler eskisi gibi oda açıp maç yapabilir; arkadaşlık işlemleri için hesap açmak gerekir.
 
 ## Çalıştırma
 
@@ -31,34 +25,26 @@ npm test
 npm start
 ```
 
-Site: `http://localhost:3000` · Sağlık kontrolü: `http://localhost:3000/health` (`version: v16`).
+`http://localhost:3000` — `/health` yanıtında `version: "v17"` beklenir.
 
-Yerelde `DATABASE_URL` olmadan `data/matches.json` kullanılır; kullanıcılar dahil tüm kayıtlar **yalnızca bu yerel dosyaya** kaydedilir. Üretimde `DATABASE_URL` zorunludur; güvenilir kalıcılık için Render'da PostgreSQL veya uyumlu kalıcı DB gerekir. DB bağlantısı yoksa üretim sunucusu bilerek başlamaz.
+**Üretimde `DATABASE_URL` zorunludur.** Render → Backgammon-site → Environment'da önceden tanımladığın PostgreSQL bağlantısı v17 için de kullanılır. Yerel geliştirmede URL olmadan JSON dosyası kullanılabilir ama üretimde geçici dosya modu kullanılmaz.
 
-### API
+## Güvenlik ve sınırlar
 
-- `POST /api/auth/register` — JSON `{ "username": "...", "password": "..." }`; kayıt + oturum çerezi.
-- `POST /api/auth/login` — JSON kullanıcı adı/şifre; yeni oturum çerezi.
-- `POST /api/auth/logout` — JSON `{}`; mevcut oturumu iptal eder.
-- `GET /api/me` — giriş yapılmışsa kullanıcı/profil/son maçlar, değilse `{ "authenticated": false }`.
+- Arkadaşlık işlemlerinde gönderici hesabı **Socket.IO bağlantısının sunucu tarafından doğrulanmış HttpOnly oturum çerezinden** alınır; istemci başka hesap adına istek kabul edemez.
+- Arkadaş profilleri yalnızca onaylı arkadaşlara açıktır. Şifre özetleri, oturum tokenları ve diğer gizli alanlar yanıtlarla gönderilmez.
+- Arkadaşlık ve oyun davetleri için istek sınırlamaları ve kapasite kontrolleri vardır. Gerçek kullanıcı sayısı artarsa IP + hesap bazlı dağıtık hız sınırlama, engelleme/şikâyet ve moderasyon gereklidir.
+- **Tek Node instance / tek snapshot JSONB** tasarımı korunur; çoklu Render instance desteği yoktur. Önemli hesaplar için düzenli PostgreSQL yedeği alın.
+- E-posta doğrulama, parola sıfırlama ve kullanıcı engelleme sistemi henüz yoktur.
+- Arkadaş daveti **iki tarafı otomatik eşleştirmez**; davet alanın kabul etmesi gerekir. Oyun odası dolarsa veya kapanırsa davet geçersiz olur.
+- Postgres Free planındaki mevcut veritabanının bitiş tarihini Render panelinden takip et. Süresi dolarsa arkadaşlıklar ve hesaplar dahil kayıtlar kaybolabilir.
 
-Hassas tokenlar kullanıcıya JSON ile gönderilmez. API yalnızca aynı origin'den JSON giriş kabul eder. Tarayıcıda `fetch` ile `credentials: 'same-origin'` kullanılır.
+## Test
 
-### Bilinen sınırlar
-
-- Bu sürüm **kullanıcı adı + şifre** ile giriş sunar; Google/Discord OAuth, e-posta doğrulaması ve parola kurtarma henüz eklenmemiştir. Parolanı unutursan otomatik sıfırlama yoktur. Gerçek kitleye açmadan önce kurtarma ve kötüye kullanım önlemleri geliştirilmelidir.
-- Misafir olarak oynadığın eski maçların kayıtlı kullanıcı hesabına taşınması otomatik yapılmaz. Yalnızca oturum açtıktan sonraki maçlar profil istatistiğine bağlanır.
-- İstatistiklerde yalnızca `finished` maçlar galibiyet/mağlubiyet olarak sayılır; `interrupted` maçlar son maç geçmişinde görülebilir ama kazanma oranına girmez.
-- v14 gibi **tek Node süreci/tek web örneği** ve tek JSONB snapshot yapısına dayanır. Çok oyunculu ölçeklenme için ayrı `users`, `sessions`, `matches` tabloları, daha gelişmiş giriş sınırlaması, e-posta/parola kurtarma, düzenli yedekler ve dağıtık oda yönetimi gerekir.
-- Sunucu yanıtlarında şifre/oturum verisi ve gizli oyuncu tokenları döndürülmez. Buna karşın kullanıcı hesaplarının bulunduğu PostgreSQL yedeği hassastır; yayınlamayın.
-- Ücretsiz Render PostgreSQL'in kullanım süresi ve yedek koşulları planına bağlıdır. Kalıcı veriyi güvenceye almak için hesabının güncel Render koşullarını kontrol et ve harici yedekleme kur.
-
-## Test notu
-
-`npm test` **56 test** içerir: v14 oyun/bağlantı/kayıt testleri + hesap özeti ve oturum güvenliği + HTTP register/login/logout + hesapla oda adını doğrulama + farklı cihazdan maça dönme + profil galibiyet/mağlubiyet kaydı. Sunucu testleri sahte Socket.IO/HTTP/DB ortamını kullanır. Ayrıca 180/375/768/1440 piksel genişliklerde **simüle edilmiş** seyirci arayüzü tarayıcıda kontrol edildi. Gerçek Render DB ve iki farklı gerçek cihazla uçtan uca test **henüz tamamlanmadı**. Bu ortamda `npm ci` çevrimdışı paket eksikliği nedeniyle tamamlanamadı; Render ağ bağlantısıyla gerekli paketleri kurmalıdır.
+`npm test` toplam **66 otomatik test** çalıştırır. Bunlar eski sürümün 56 testiyle birlikte arkadaşlık yetkilendirmesi, arama, istek, onay, ret, silme, veritabanı snapshot'ından geri dönüş, davet, oda kapanınca davetin silinmesi ve çevrimiçi durumunu kapsar. Testler HTTP, Socket.IO ve PostgreSQL simülasyonlarıyla çalışır. **Gerçek Render veritabanı ve iki ayrı hesapla canlı davet akışı henüz doğrulanmadı.**
 
 ## Yayınlama
 
-`YAYINLAMA-REHBERI.md` dosyasındaki yönergeleri izle. `DATABASE_URL` veya gerçek şifreleri GitHub'a koyma. Önce PostgreSQL'i bağla, ardından v16 ZIP içindeki dosyaları GitHub depoya yükle ve deploy et.
+`YAYINLAMA-REHBERI.md` dosyasını izle. Mevcut Render `DATABASE_URL` bağlantısını yeni bir veritabanı kurmadan kullanabilirsin. Gerçek gizli bilgileri ZIP dosyasına veya GitHub'a koyma.
 
-**Zirad bağlantıları:** `buymeacoffee.com/zirad`, `discord.com/users/476723789221199872`.
+**Yapımcı:** Zirad — https://buymeacoffee.com/zirad — https://discord.com/users/476723789221199872

@@ -19,6 +19,7 @@ function makeApp() {
     require: name => name === 'express' ? express : name === 'http' ? { createServer() { return { listen(_port, _host, cb) { cb(); } }; } }
       : name === 'socket.io' ? { Server: class { constructor() { return io; } } }
       : name === './game' ? game : name === './accounts' ? accounts
+      : name === './friends' ? require('../server/friends')
       : name === './storage' ? { loadSnapshot: () => null, saveSnapshot: () => {} } : require(name),
     process: { env: {} }, console: { log() {}, warn() {}, error() {} },
     __dirname: path.join(__dirname, '..', 'server'), URL,

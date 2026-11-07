@@ -116,6 +116,41 @@
         </div>
       </div>
       <div id="lobbyMessage" class="message" role="status" aria-live="polite"></div>
+      <section id="friendsSection" class="friendsSection hidden" aria-labelledby="friendsTitle">
+        <div class="friendsHeading">
+          <div>
+            <span class="publicRoomsEyebrow">ARKADAŞLARIM</span>
+            <h2 id="friendsTitle">Arkadaşlar ve davetler <span id="friendsCount" class="publicRoomsCount">0</span></h2>
+            <p>Kullanıcı ara, arkadaşlık isteği gönder veya arkadaşına tek tuşla özel maç daveti yolla.</p>
+          </div>
+          <button id="friendsRefreshBtn" class="refreshRoomsBtn" type="button">↻ Yenile</button>
+        </div>
+        <div class="friendsSearchArea">
+          <label for="friendsSearchInput">Kullanıcı ara</label>
+          <div class="friendsSearchRow">
+            <input id="friendsSearchInput" maxlength="20" placeholder="En az 2 harf yaz..." autocomplete="off" />
+            <button id="friendsSearchBtn" class="primary" type="button">Ara</button>
+          </div>
+          <div id="friendsSearchResults" class="friendsCards" aria-live="polite"></div>
+        </div>
+        <div id="friendsInvitationsBlock" class="friendsInvitationsBlock hidden">
+          <h3>🎮 Oyun davetlerin</h3>
+          <div id="friendsInvitationsList" class="friendsCards"></div>
+        </div>
+        <div class="friendsColumns">
+          <div class="friendsColumn">
+            <h3>Arkadaşlarım</h3>
+            <div id="friendsList" class="friendsCards"><p class="friendsEmpty">Henüz arkadaşın yok.</p></div>
+          </div>
+          <div class="friendsColumn">
+            <h3>Gelen istekler <span id="friendsIncomingCount">0</span></h3>
+            <div id="friendsIncomingList" class="friendsCards"><p class="friendsEmpty">Gelen istek yok.</p></div>
+            <h3 class="friendsSubheading">Gönderdiğin istekler</h3>
+            <div id="friendsOutgoingList" class="friendsCards"><p class="friendsEmpty">Bekleyen istek yok.</p></div>
+          </div>
+        </div>
+        <p id="friendsMessage" class="friendsMessage" role="status" aria-live="polite"></p>
+      </section>
       <section class="publicRoomsSection" aria-labelledby="publicRoomsTitle">
         <div class="publicRoomsHeader">
           <div>
@@ -269,6 +304,16 @@
       </div>
     </section>
 
+    <div id="friendProfileModal" class="roundModal hidden" role="dialog" aria-modal="true" aria-labelledby="friendProfileTitle">
+      <div class="roundModalCard friendProfileCard">
+        <h2 id="friendProfileTitle">Arkadaş profili</h2>
+        <p id="friendProfileOnline" class="muted"></p>
+        <div id="friendProfileStats" class="friendProfileStats"></div>
+        <h3>Son maçlar</h3>
+        <div id="friendProfileHistory" class="friendProfileHistory"></div>
+        <button id="friendProfileCloseBtn" type="button" class="resetBtn">Kapat</button>
+      </div>
+    </div>
     <div id="roundModal" class="roundModal hidden">
       <div class="roundModalCard">
         <div class="roundModalTitle" data-text="roundTitle">Tur Sonucu</div>

@@ -72,6 +72,7 @@ function harness(initialSnapshot = null) {
       : name === 'socket.io' ? { Server: FakeIO }
       : name === './game' ? gameRules
       : name === './accounts' ? require('../server/accounts')
+      : name === './friends' ? require('../server/friends')
       : name === './storage' ? fakeStorage
       : nativeRequire(name),
     __dirname: path.join(__dirname, '..', 'server'),
@@ -81,7 +82,7 @@ function harness(initialSnapshot = null) {
     setInterval: () => ({ unref() {} })
   };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'server', 'server.js'), 'utf8') +
-    '\n globalThis.__test = { rooms, accounts, archiveMatch, getAccountStats, persistAll, awardRoundTo, maybeStartTurnRoll, checkSocketOrigin };', context);
+    '\n globalThis.__test = { rooms, accounts, archiveMatch, getAccountStats, persistAll, awardRoundTo, maybeStartTurnRoll, checkSocketOrigin, friends };', context);
   return { createSocket: (id, cookie) => new FakeSocket(id, cookie), advance, rooms: context.__test.rooms, io, helpers: context.__test, snapshot: () => structuredClone(savedSnapshot) };
 }
 function setupPair({ autoDice = false, score = 5 } = {}) {
@@ -767,4 +768,108 @@ test('tek odada en fazla 60 izleyici olabilir', () => {
   overflow.trigger('viewer:watch', { roomCode });
   assert.match(overflow.last('room:error'), /kapasitesi doldu/i);
   assert.equal(room.spectators.size, 60);
+});
+
+function loggedInFriends() {
+  const h = harness();
+  const alpha = h.helpers.accounts.register('AlphaUser', 'Test12345!');
+  const beta = h.helpers.accounts.register('BetaUser', 'Test12345!');
+  const gamma = h.helpers.accounts.register('GammaUser', 'Test12345!');
+  const a = h.createSocket('alpha-sock', `tavla_session=${alpha.token}`);
+  const b = h.createSocket('beta-sock', `tavla_session=${beta.token}`);
+  const c = h.createSocket('gamma-sock', `tavla_session=${gamma.token}`);
+  return { ...h, a, b, c, alpha, beta, gamma };
+}
+
+test('arkadaşlık araması, istek, kabul, çevrimiçi görünümü ve kalıcı snapshot', () => {
+  const h = loggedInFriends();
+  h.a.trigger('friends:search', { query: 'beta' });
+  assert.equal(h.a.last('friends:results')[0].user.username, 'BetaUser');
+  assert.equal(h.a.last('friends:results')[0].status, 'none');
+  h.a.trigger('friends:request', { userId: h.beta.user.id });
+  assert.equal(h.b.last('friends:state').incoming.length, 1);
+  assert.equal(h.a.last('friends:state').outgoing.length, 1);
+  assert.equal(h.snapshot().friends.length, 1);
+  h.b.trigger('friends:respond', { userId: h.alpha.user.id, accept: true });
+  assert.equal(h.a.last('friends:state').friends[0].user.username, 'BetaUser');
+  assert.equal(h.b.last('friends:state').friends[0].online, true);
+  assert.equal(h.snapshot().friends[0].status, 'accepted');
+  const restored = harness(h.snapshot());
+  assert.equal(restored.helpers.friends.isFriend(h.alpha.user.id, h.beta.user.id), true);
+});
+
+test('arkadaşlığı kabul etme, silme ve davetleri sahte hesap engeline takılır', () => {
+  const h = loggedInFriends();
+  h.c.trigger('friends:request', { userId: h.beta.user.id });
+  h.a.trigger('friends:respond', { userId: h.gamma.user.id, accept: true });
+  assert.match(h.a.last('friends:error'), /yok/);
+  h.a.trigger('friends:invite', { userId: h.beta.user.id, playerToken: 'a'.repeat(40) });
+  assert.match(h.a.last('friends:error'), /arkadaş/);
+  assert.equal(h.a.last('room:joined'), undefined);
+  h.b.trigger('friends:respond', { userId: h.gamma.user.id, accept: true });
+  h.c.trigger('friends:profile', { userId: h.alpha.user.id });
+  assert.match(h.c.last('friends:error'), /arkadaş/);
+  h.c.trigger('friends:remove', { userId: h.beta.user.id });
+  assert.equal(h.b.last('friends:state').friends.length, 0);
+});
+
+test('arkadaş daveti özel oda açar, hedef kullanıcıya iletilir ve yalnızca davet alan kabul eder', () => {
+  const h = loggedInFriends();
+  h.a.trigger('friends:request', { userId: h.beta.user.id });
+  h.b.trigger('friends:respond', { userId: h.alpha.user.id, accept: true });
+  h.a.trigger('friends:invite', { userId: h.beta.user.id, playerToken: 'a'.repeat(40), targetScore: 7, autoDice: false });
+  const roomCode = h.a.last('room:joined').roomCode;
+  assert.equal(h.rooms.get(roomCode).visibility, 'private');
+  assert.equal(h.rooms.get(roomCode).game.targetScore, 7);
+  const invitation = h.b.last('friends:invitations')[0];
+  assert.equal(invitation.roomCode, roomCode);
+  h.c.trigger('friends:invite:respond', { inviteId: invitation.id, accept: true });
+  assert.match(h.c.last('friends:error'), /sona erdi/);
+  h.b.trigger('friends:invite:respond', { inviteId: invitation.id, accept: true });
+  assert.equal(h.b.last('friends:invite:ready').roomCode, roomCode);
+  h.b.trigger('room:join', { roomCode, playerToken: 'b'.repeat(40), autoDice: false });
+  assert.equal(h.rooms.get(roomCode).players.black.accountId, h.beta.user.id);
+  assert.equal(h.b.last('room:joined').color, 'black');
+});
+
+test('oyun daveti arkadaş çevrimdışı ya da aktif odadaysa reddedilir', () => {
+  const h = loggedInFriends();
+  h.a.trigger('friends:request', { userId: h.beta.user.id });
+  h.b.trigger('friends:respond', { userId: h.alpha.user.id, accept: true });
+  h.b.trigger('room:create', { playerToken: 'b'.repeat(40), visibility: 'private' });
+  h.a.trigger('friends:invite', { userId: h.beta.user.id, playerToken: 'a'.repeat(40) });
+  assert.match(h.a.last('friends:error'), /odada/);
+  assert.equal(h.a.last('room:joined'), undefined);
+});
+
+test('arkadaş olmayan oyuncu başka hesabın profilini göremez', () => {
+  const h = loggedInFriends();
+  h.c.trigger('friends:profile', { userId: h.alpha.user.id });
+  assert.equal(h.c.last('friends:profile'), undefined);
+  assert.match(h.c.last('friends:error'), /arkadaş/);
+  h.a.trigger('friends:request', { userId: h.beta.user.id });
+  h.b.trigger('friends:respond', { userId: h.alpha.user.id, accept: true });
+  h.a.trigger('friends:profile', { userId: h.beta.user.id });
+  assert.equal(h.a.last('friends:profile').user.username, 'BetaUser');
+  assert.equal(h.a.last('friends:profile').user.passwordHash, undefined);
+});
+
+test('oda kapatılınca henüz kabul edilmemiş oyun daveti geçersizleşir', () => {
+  const h = loggedInFriends();
+  h.a.trigger('friends:request', { userId: h.beta.user.id });
+  h.b.trigger('friends:respond', { userId: h.alpha.user.id, accept: true });
+  h.a.trigger('friends:invite', { userId: h.beta.user.id, playerToken: 'a'.repeat(40) });
+  assert.equal(h.b.last('friends:invitations').length, 1);
+  h.a.trigger('room:leave');
+  assert.equal(h.b.last('friends:invitations').length, 0);
+});
+
+test('aktif oturum kapatılınca çevrimiçi durumu diğer arkadaşta değişir', () => {
+  const h = loggedInFriends();
+  h.a.trigger('friends:request', { userId: h.beta.user.id });
+  h.b.trigger('friends:respond', { userId: h.alpha.user.id, accept: true });
+  assert.equal(h.a.last('friends:state').friends[0].online, true);
+  h.b.disconnected = true;
+  h.b.trigger('disconnect');
+  assert.equal(h.a.last('friends:state').friends[0].online, false);
 });

@@ -5,6 +5,7 @@ const os = require('os');
 const crypto = require('crypto');
 const { loadSnapshot, saveSnapshot } = require('./storage');
 const { Accounts, SESSION_MAX_AGE_MS, publicUser, tokenHash, readCookie } = require('./accounts');
+const { Friends } = require('./friends');
 const { Server } = require('socket.io');
 const {
   createMatch,
@@ -107,7 +108,7 @@ app.use((_req, res, next) => {
 });
 app.get('/health', (_req, res) => {
   const ok = isStorageReady();
-  res.status(ok ? 200 : 503).json({ ok, version: 'v16', storage: databaseConfigured ? 'postgres' : 'file' });
+  res.status(ok ? 200 : 503).json({ ok, version: 'v17', storage: databaseConfigured ? 'postgres' : 'file' });
 });
 // Oturum yalnızca HttpOnly SameSite cookie'den okunur; tarayıcı JS'si oturum anahtarını göremez.
 const authRate = new Map();
@@ -172,9 +173,11 @@ if (typeof app.post === 'function') {
   app.post('/api/auth/logout', async (req, res) => {
     if (!allowSameOriginMutation(req)) return res.status(403).json({ error: 'Geçersiz istek.' });
     if (!isStorageReady()) return res.status(503).json({ error: 'Veritabanına erişilemiyor.' });
+    const loggedOutAccount = getHttpAccount(req);
     accounts.revokeToken(readCookie(req.headers?.cookie));
     try { await persistAll(); }
     catch { return res.status(503).json({ error: 'Çıkış kaydedilemedi.' }); }
+    if (loggedOutAccount) sendFriendPresence(loggedOutAccount.id);
     res.setHeader('Set-Cookie', sessionCookie(req, '', 0));
     return res.json({ authenticated: false });
   });
@@ -193,6 +196,8 @@ app.use((error, _req, res, _next) => {
 
 const rooms = new Map();
 const accounts = new Accounts();
+const friends = new Friends();
+const pendingInvites = new Map(); // geçici oyun davetleri; maç/arkadaşlık ilişkileri kalıcıdır
 const matchHistory = [];
 let nextChatId = 1;
 let nextSummaryId = 1;
@@ -206,6 +211,7 @@ function persistAll() {
     nextSummaryId,
     history: matchHistory,
     ...accounts.serialize(),
+    friends: friends.serialize(),
     rooms: [...rooms.entries()].map(([roomCode, room]) => ({
       roomCode,
       players: Object.fromEntries(['white', 'black'].map(color => {
@@ -301,6 +307,7 @@ function removeRoom(roomCode, room, reason) {
       if (viewer) { viewer.leave(viewerChannel(roomCode)); viewer.data.watchingRoom = null; }
     }
     room.spectators?.clear();
+    invalidateRoomInvites(roomCode);
     for (const player of [room.players.white, room.players.black]) {
       const memberSocket = player?.socketId && io.sockets.sockets.get(player.socketId);
       if (memberSocket) memberSocket.leave(roomCode);
@@ -333,6 +340,7 @@ function startReconnectTimer(roomCode, room, color) {
 function restoreSavedRooms(saved) {
   if (!saved) return;
   accounts.restore(saved.users, saved.sessions);
+  friends.restore(saved.friends);
   nextChatId = Math.max(1, Number(saved.nextChatId) || 1);
   nextSummaryId = Math.max(1, Number(saved.nextSummaryId) || 1);
   for (const history of saved.history.slice(-1000)) {
@@ -730,6 +738,7 @@ function emitRoomState(roomCode) {
   };
   if (saved) saved.then(notify);
   else notify();
+  for (const member of [room.players.white, room.players.black]) if (member?.accountId) sendFriendPresence(member.accountId);
 }
 
 function findPlayerRoom(socketId) {
@@ -773,12 +782,195 @@ function isPlayerReclaimable(player, token, accountId) {
   return sameToken(player, token);
 }
 
+// Hesaplı arkadaş özellikleri. Sadece sunucunun doğruladığı oturum hesabı yetkilidir.
+function friendsError(socket, message) { socket.emit('friends:error', message); }
+function requireFriendAccount(socket) {
+  const account = getSocketAccount(socket);
+  if (!account) friendsError(socket, 'Arkadaşlık özellikleri için hesabına giriş yapmalısın.');
+  return account;
+}
+function connectedAccountSockets(accountId) {
+  return [...io.sockets.sockets.values()].filter(socket =>
+    !socket.disconnected && getSocketAccount(socket)?.id === accountId);
+}
+function isAccountOnline(accountId) { return connectedAccountSockets(accountId).length > 0; }
+function watchableFriendMatch(accountId) {
+  const found = findPlayerRoomByAccountId(accountId);
+  if (!found || !found.room.hasStarted || !found.room.allowSpectators || found.room.game.winner) return null;
+  return found.roomCode;
+}
+function publicFriendEntry(id, createdAt) {
+  const account = accounts.users.get(id);
+  if (!account) return null;
+  return {
+    user: publicUser(account), createdAt, online: isAccountOnline(id),
+    stats: getAccountStats(id), spectateRoomCode: watchableFriendMatch(id)
+  };
+}
+function friendStatus(me, other) {
+  const item = friends.get(me, other);
+  if (!item) return 'none';
+  if (item.status === 'accepted') return 'friends';
+  return item.requestedBy === me ? 'outgoing' : 'incoming';
+}
+function sendFriendState(accountId) {
+  const list = friends.list(accountId);
+  const payload = Object.fromEntries(Object.entries(list).map(([key, entries]) =>
+    [key, entries.map(e => publicFriendEntry(e.otherId, e.createdAt)).filter(Boolean)]));
+  for (const socket of connectedAccountSockets(accountId)) socket.emit('friends:state', payload);
+}
+function sendFriendsToBoth(a, b) {
+  sendFriendState(a);
+  if (b !== a) sendFriendState(b);
+}
+const FRIEND_INVITE_LIFETIME = 5 * 60_000;
+function validInvite(invite) {
+  const room = invite && rooms.get(invite.roomCode);
+  return !!(invite && invite.expiresAt > Date.now() && room &&
+    room.players.white?.accountId === invite.fromId && !room.players.black &&
+    !room.hasStarted && friends.isFriend(invite.fromId, invite.toId));
+}
+function invalidateRoomInvites(roomCode) {
+  const changed = new Set();
+  for (const [id, invite] of pendingInvites) {
+    if (invite.roomCode === roomCode) {
+      pendingInvites.delete(id);
+      changed.add(invite.toId);
+    }
+  }
+  for (const userId of changed) sendFriendInvitations(userId);
+}
+function sendFriendInvitations(accountId) {
+  for (const [id, invite] of pendingInvites) if (!validInvite(invite)) pendingInvites.delete(id);
+  const invites = [...pendingInvites.values()].filter(i => i.toId === accountId).map(i => ({
+    id: i.id, roomCode: i.roomCode, createdAt: i.createdAt, expiresAt: i.expiresAt,
+    from: publicUser(accounts.users.get(i.fromId)), targetScore: rooms.get(i.roomCode)?.game.targetScore
+  }));
+  for (const socket of connectedAccountSockets(accountId)) socket.emit('friends:invitations', invites);
+}
+function sendFriendPresence(accountId) {
+  for (const id of friends.list(accountId).friends.map(friend => friend.otherId)) sendFriendState(id);
+  sendFriendState(accountId);
+}
+function friendAction(socket, type, handler) {
+  onProtected(socket, type, (payload = {}) => {
+    if (!allowSocketAction(socket, type === 'friends:search' ? 'friend-search' : 'friends',
+        type === 'friends:search' ? 25 : 14, 60_000)) return friendsError(socket, 'Çok fazla arkadaşlık işlemi.');
+    const account = requireFriendAccount(socket);
+    if (!account) return;
+    try { handler(account, payload && typeof payload === 'object' ? payload : {}); }
+    catch (error) { friendsError(socket, error.message || 'İşlem başarısız.'); }
+  });
+}
+function emitAfterPersist(cb) {
+  const saved = persistAll();
+  if (saved) saved.then(cb).catch(error => logEvent('error', 'friends_persist_failed', { message: error.message }));
+  else cb();
+}
+
 io.on('connection', (socket) => {
   const sessionToken = readCookie(socket.request?.headers?.cookie);
   socket.data.sessionHash = sessionToken && accounts.resolveToken(sessionToken) ? tokenHash(sessionToken) : null;
   socket.join(PUBLIC_LOBBY_CHANNEL);
   socket.emit('rooms:list', listOpenPublicRooms());
   socket.emit('matches:list', listSpectatablePublicMatches());
+  const initialAccount = getSocketAccount(socket);
+  if (initialAccount) {
+    sendFriendPresence(initialAccount.id);
+    sendFriendInvitations(initialAccount.id);
+  }
+  friendAction(socket, 'friends:list', account => { sendFriendState(account.id); sendFriendInvitations(account.id); });
+  friendAction(socket, 'friends:search', (account, { query }) => {
+    if (typeof query !== 'string' || query.trim().length < 2 || query.length > 24) {
+      socket.emit('friends:results', []); return;
+    }
+    const search = query.trim().toLowerCase();
+    const result = [...accounts.users.values()]
+      .filter(user => user.id !== account.id && user.username.toLowerCase().includes(search))
+      .slice(0, 10).map(user => ({
+        user: publicUser(user), status: friendStatus(account.id, user.id), online: isAccountOnline(user.id)
+      }));
+    socket.emit('friends:results', result);
+  });
+  friendAction(socket, 'friends:request', (account, { userId }) => {
+    if (typeof userId !== 'string' || !accounts.users.has(userId)) throw new Error('Oyuncu bulunamadı.');
+    friends.request(account.id, userId);
+    emitAfterPersist(() => sendFriendsToBoth(account.id, userId));
+  });
+  friendAction(socket, 'friends:respond', (account, { userId, accept }) => {
+    if (typeof userId !== 'string' || typeof accept !== 'boolean') throw new Error('Geçersiz istek.');
+    friends.respond(account.id, userId, accept);
+    emitAfterPersist(() => sendFriendsToBoth(account.id, userId));
+  });
+  friendAction(socket, 'friends:remove', (account, { userId }) => {
+    if (typeof userId !== 'string') throw new Error('Geçersiz istek.');
+    friends.remove(account.id, userId);
+    for (const [id, invite] of pendingInvites) {
+      if ((invite.fromId === account.id && invite.toId === userId) ||
+          (invite.fromId === userId && invite.toId === account.id)) pendingInvites.delete(id);
+    }
+    emitAfterPersist(() => { sendFriendsToBoth(account.id, userId); sendFriendInvitations(account.id); sendFriendInvitations(userId); });
+  });
+  friendAction(socket, 'friends:profile', (account, { userId }) => {
+    if (typeof userId !== 'string' || !friends.isFriend(account.id, userId)) throw new Error('Profil yalnızca arkadaşlara açık.');
+    const other = accounts.users.get(userId);
+    if (!other) throw new Error('Oyuncu bulunamadı.');
+    socket.emit('friends:profile', { user: publicUser(other), stats: getAccountStats(userId),
+      recentMatches: getAccountRecentMatches(userId), online: isAccountOnline(userId) });
+  });
+  friendAction(socket, 'friends:invite', (account, { userId, playerToken, targetScore, autoDice }) => {
+    if (typeof userId !== 'string' || !friends.isFriend(account.id, userId)) throw new Error('Yalnızca arkadaşlarını davet edebilirsin.');
+    if (!isAccountOnline(userId)) throw new Error('Arkadaşın çevrimdışı.');
+    if (findPlayerRoomByAccountId(userId)) throw new Error('Arkadaşın şu anda başka bir odada.');
+    if (connectedAccountSockets(userId).some(s => s.data.watchingRoom)) throw new Error('Arkadaşın şu anda maç izliyor.');
+    if (socket.data.watchingRoom) throw new Error('Önce izlediğin maçtan ayrıl.');
+    let found = findPlayerRoom(socket.id);
+    if (findPlayerRoomByAccountId(account.id) && !found) throw new Error('Önce mevcut oyununa geri dön.');
+    if (found && (found.color !== 'white' || found.room.players.black || found.room.hasStarted))
+      throw new Error('Davet için rakip beklediğin bir odada olmalısın.');
+    if (!found) {
+      const now = Date.now();
+      socket.data.roomCreates = (socket.data.roomCreates || []).filter(t => now - t < 60_000);
+      if (socket.data.roomCreates.length >= 3) throw new Error('Bir dakikada çok fazla oda oluşturdun.');
+      socket.data.roomCreates.push(now);
+      if (typeof playerToken !== 'string' || playerToken.length < 20 || playerToken.length > 100)
+        throw new Error('Güvenli oyuncu kimliği bulunamadı.');
+      if (preventMultipleRooms(socket, playerToken)) return;
+      if (rooms.size >= MAX_ROOMS) throw new Error('Oda kapasitesi doldu.');
+      const parsedScore = Number(targetScore);
+      const score = [3, 5, 7, 11].includes(parsedScore) ? parsedScore : 5;
+      let code = randomRoomCode();
+      while (rooms.has(code)) code = randomRoomCode();
+      const room = createRoomModel(score, socket.id, account.username, playerToken, autoDice, 'private', account.id, false);
+      rooms.set(code, room);
+      socket.join(code);
+      found = { roomCode: code, room, color: 'white' };
+      socket.emit('room:joined', { roomCode: code, color: 'white' });
+      emitRoomState(code);
+      broadcastOpenPublicRooms();
+    }
+    const { roomCode } = found;
+    for (const [id, invite] of pendingInvites) {
+      if (invite.toId === userId && invite.fromId === account.id) pendingInvites.delete(id);
+    }
+    const now = Date.now();
+    const inviteId = crypto.randomUUID();
+    pendingInvites.set(inviteId, { id: inviteId, fromId: account.id,
+      toId: userId, roomCode, createdAt: now, expiresAt: now + FRIEND_INVITE_LIFETIME });
+    sendFriendInvitations(userId);
+    socket.emit('friends:invite:sent', { username: accounts.users.get(userId).username, roomCode });
+  });
+  friendAction(socket, 'friends:invite:respond', (account, { inviteId, accept }) => {
+    if (typeof inviteId !== 'string' || typeof accept !== 'boolean') throw new Error('Geçersiz davet.');
+    const invite = [...pendingInvites.values()].find(i => i.id === inviteId && i.toId === account.id);
+    if (!invite || !validInvite(invite)) throw new Error('Davet sona erdi veya oda artık uygun değil.');
+    if (accept && findPlayerRoomByAccountId(account.id)) throw new Error('Daveti kabul etmek için önce mevcut odandan ayrıl.');
+    if (accept && connectedAccountSockets(account.id).some(s => s.data.watchingRoom))
+      throw new Error('Daveti kabul etmek için önce izlediğin maçtan ayrıl.');
+    for (const [key, item] of pendingInvites) if (item === invite) pendingInvites.delete(key);
+    sendFriendInvitations(account.id);
+    if (accept) socket.emit('friends:invite:ready', { roomCode: invite.roomCode });
+  });
   socket.on('rooms:request', () => {
     socket.emit('rooms:list', listOpenPublicRooms());
     socket.emit('matches:list', listSpectatablePublicMatches());
@@ -914,6 +1106,7 @@ io.on('connection', (socket) => {
     if (!playerName) return;
     room.players.black = attachPlayer({}, socket.id, playerName, playerToken, autoDice, accountId);
     room.hasStarted = true;
+    invalidateRoomInvites(roomCode);
     pushChatMessage(room, 'system', 'Sistem', `${room.players.black.name} odaya katıldı.`);
     socket.join(roomCode);
     socket.emit('room:joined', { roomCode, color: 'black' });
@@ -1183,6 +1376,10 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     stopWatching(socket);
+    const loggedInAccount = getSocketAccount(socket);
+    if (loggedInAccount) {
+      for (const friend of friends.list(loggedInAccount.id).friends) sendFriendState(friend.otherId);
+    }
     const found = findPlayerRoom(socket.id);
     if (!found) return;
 
