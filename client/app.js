@@ -131,10 +131,8 @@ function updateRoomLinkPreview() {
 }
 
 function prefillLobbyFromPrefs() {
-  if (state.me.name) {
-    createName.value = state.me.name;
-    joinName.value = state.me.name;
-  }
+  createName.value = '';
+  joinName.value = '';
   const url = new URL(window.location.href);
   const roomCode = (url.searchParams.get('room') || '').trim().toUpperCase();
   if (roomCode) roomCodeInput.value = roomCode.slice(0, 5);

@@ -808,9 +808,15 @@ body[data-theme="dark"] .doubleOfferBtn { background: linear-gradient(180deg, #5
   min-height: 100vh;
   background: transparent;
 }
-.lobbyNavigation { display: flex; justify-content: space-between; align-items: center; gap: 15px; padding: 21px 0; }
+.lobbyNavigation { display: flex; justify-content: space-between; align-items: flex-start; gap: 15px; padding: 21px 0; }
+.logoArea { display: flex; flex-direction: column; gap: 6px; }
+.logoRow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .lobbyLogo { display: inline-flex; align-items: center; gap: 8px; color: #15243d; text-decoration: none; font-weight: 900; font-size: 24px; letter-spacing: -.9px; }
 .lobbyLogo > span:last-child { color: #346ce6; margin-left: -8px; }
+.madeByInline { color: rgba(21, 36, 61, 0.45); font-size: 14px; font-weight: 700; letter-spacing: .2px; }
+.creatorLinks { display: flex; flex-wrap: wrap; gap: 12px; padding-left: 49px; }
+.creatorLinks a { color: #6b7c93; text-decoration: none; font-size: 13px; font-weight: 600; }
+.creatorLinks a:hover { color: #346ce6; text-decoration: underline; }
 .logoDice { display: inline-flex; align-items: center; justify-content: center; color: white; background: #346ce6; border-radius: 12px; width: 37px; height: 37px; font-size: 28px; margin-right: 4px; }
 .connectionStatus { display: inline-flex; align-items: center; gap: 9px; border: 1px solid #d5e8df; background: #f1faf5; color: #237551; border-radius: 100px; font-weight: 700; padding: 8px 13px; font-size: 13px; }
 .connectionStatus.offline { color: #985b20; background: #fff5e8; border-color: #f1dcc1; }
@@ -853,6 +859,7 @@ body[data-theme="dark"] .doubleOfferBtn { background: linear-gradient(180deg, #5
   #app:has(.lobbyPage:not(.hidden)) { padding: 0 18px; }
   .lobbyPage { padding: 0 0 25px; }
   .lobbyNavigation { padding: 15px 0; }
+  .creatorLinks { padding-left: 0; }
   .lobbyHero { padding-top: 36px; }
   .lobbyHero h1 { letter-spacing: -1.1px; }
   .lobbyForms { grid-template-columns: 1fr; gap: 15px; max-width: 530px; }
@@ -864,6 +871,7 @@ body[data-theme="dark"] .doubleOfferBtn { background: linear-gradient(180deg, #5
   .lobbyHero { padding: 27px 0 10px; }
   .lobbyHero > p { font-size: 15px; }
   .lobbyLogo { font-size: 19px; }
+  .madeByInline { font-size: 12px; }
   .logoDice { width: 32px; height: 32px; }
   .connectionStatus { font-size: 10px; padding: 6px 9px; }
   .lobbyPanel h2 { font-size: 23px; }
