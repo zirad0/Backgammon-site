@@ -1,3 +1,6 @@
+# Render Blueprint ile yeni kurulum: web servisi + PostgreSQL.
+# Mevcut tek web servisini GitHub'a ZIP yükleyerek güncellemek Blueprint'i
+# otomatik çalıştırmaz; veritabanını Render panelinden ayrıca kurmanız gerekir.
 services:
   - type: web
     name: tavla-online
@@ -6,3 +9,16 @@ services:
     buildCommand: npm ci
     startCommand: npm start
     healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: tavla-online-db
+          property: connectionString
+
+databases:
+  - name: tavla-online-db
+    plan: free
+    databaseName: tavlaonline
+    user: tavlaonline

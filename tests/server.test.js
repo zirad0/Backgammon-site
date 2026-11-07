@@ -19,8 +19,9 @@ function harness(initialSnapshot = null) {
   let io;
 
   class FakeSocket {
-    constructor(id) {
+    constructor(id, cookie = null) {
       this.id = id;
+      this.request = { headers: { cookie: cookie || '' } };
       this.handlers = new Map();
       this.events = [];
       this.rooms = new Set();
@@ -36,7 +37,7 @@ function harness(initialSnapshot = null) {
     last(name) { return [...this.events].reverse().find(e => e.name === name)?.data; }
   }
   class FakeIO {
-    constructor() { this.sockets = { sockets }; io = this; }
+    constructor(_server, options) { this.options = options; this.sockets = { sockets }; io = this; }
     on(name, fn) { callbacks.set(name, fn); }
     to(room) { return { emit: (name, data) => {
       for (const sock of sockets.values()) {
@@ -70,16 +71,18 @@ function harness(initialSnapshot = null) {
       : name === 'http' ? fakeHttp
       : name === 'socket.io' ? { Server: FakeIO }
       : name === './game' ? gameRules
+      : name === './accounts' ? require('../server/accounts')
       : name === './storage' ? fakeStorage
       : nativeRequire(name),
     __dirname: path.join(__dirname, '..', 'server'),
+    URL,
     console: { log() {} }, process: { env: {} },
     setTimeout: stubTimeout, clearTimeout: id => timers.delete(id),
     setInterval: () => ({ unref() {} })
   };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'server', 'server.js'), 'utf8') +
-    '\n globalThis.__test = { rooms, awardRoundTo, maybeStartTurnRoll };', context);
-  return { createSocket: id => new FakeSocket(id), advance, rooms: context.__test.rooms, io, helpers: context.__test, snapshot: () => structuredClone(savedSnapshot) };
+    '\n globalThis.__test = { rooms, accounts, archiveMatch, getAccountStats, persistAll, awardRoundTo, maybeStartTurnRoll, checkSocketOrigin };', context);
+  return { createSocket: (id, cookie) => new FakeSocket(id, cookie), advance, rooms: context.__test.rooms, io, helpers: context.__test, snapshot: () => structuredClone(savedSnapshot) };
 }
 function setupPair({ autoDice = false, score = 5 } = {}) {
   const h = harness();
@@ -522,4 +525,246 @@ test('hatalı websocket veri tipleri ve çok sık istek güvenle reddedilir', ()
   for (let i = 0; i < 250; i++) a.trigger('move:play', { actionId: 'bad' });
   assert.deepEqual(room.game.state, before);
   assert.equal(rooms.size, 1);
+});
+
+
+test('WebSocket isteği aynı siteden gelmeli; yabancı origin reddedilir', () => {
+  const h = harness();
+  const allow = h.io.options.allowRequest;
+  const check = headers => {
+    let result;
+    allow({ headers }, (error, allowed) => { result = { error, allowed }; });
+    return result;
+  };
+  assert.equal(check({ host: 'game.example.com', origin: 'https://game.example.com' }).allowed, true);
+  assert.equal(check({ host: 'game.example.com', origin: 'https://phishing.example.com' }).allowed, false);
+  assert.equal(check({ host: 'game.example.com', origin: 'javascript:evil()' }).allowed, false);
+  assert.equal(check({ host: 'game.example.com' }).allowed, true);
+  assert.equal(h.io.options.maxHttpBufferSize, 64 * 1024);
+});
+
+
+test('kayıtlı kullanıcının adı korunur, misafir aynı adı taklit edemez', () => {
+  const h = harness();
+  const { token, user } = h.helpers.accounts.register('Zirad', 'Guv3nliSifre!');
+  const member = h.createSocket('member', `tavla_session=${token}`);
+  const guest = h.createSocket('guest');
+  guest.trigger('room:create', { name: 'zirad', targetScore: 5, playerToken: 'b'.repeat(48), autoDice: false });
+  assert.match(guest.last('room:error'), /kayıtlı bir kullanıcıya/);
+  member.trigger('room:create', { name: 'BaşkaAd', targetScore: 5, playerToken: 'a'.repeat(48), autoDice: false });
+  const code = member.last('room:joined').roomCode;
+  assert.equal(h.rooms.get(code).players.white.name, 'Zirad');
+  assert.equal(h.rooms.get(code).players.white.accountId, user.id);
+  assert.equal(JSON.stringify(member.last('state:update')).includes('accountId'), false);
+});
+
+test('kayıtlı oda gizli tokenla ele geçirilemez, hesap başka cihazdan geri bağlanır', () => {
+  const h = harness();
+  const { token, user } = h.helpers.accounts.register('Zirad', 'Guv3nliSifre!');
+  const member = h.createSocket('member', `tavla_session=${token}`);
+  member.trigger('room:create', { name: 'Zirad', playerToken: 'a'.repeat(48), autoDice: false });
+  const code = member.last('room:joined').roomCode;
+  const thief = h.createSocket('thief');
+  thief.trigger('player:reconnect', { playerToken: 'a'.repeat(48) });
+  assert.equal(thief.events.some(event => event.name === 'player:reconnect-missing'), true);
+  assert.equal(h.rooms.get(code).players.white.socketId, 'member');
+  const alternateToken = h.helpers.accounts.login('zirad', 'Guv3nliSifre!').token;
+  const secondDevice = h.createSocket('secondDevice', `tavla_session=${alternateToken}`);
+  secondDevice.trigger('player:reconnect', { playerToken: 'c'.repeat(48), autoDice: false });
+  assert.equal(secondDevice.last('room:joined').roomCode, code);
+  assert.equal(h.rooms.get(code).players.white.socketId, 'secondDevice');
+  assert.equal(h.rooms.get(code).players.white.accountId, user.id);
+  assert.equal(member.last('room:session-taken'), undefined);
+});
+
+test('profil galibiyet, mağlubiyet ve geçmiş maçları oturum hesabıyla eşleştirir', () => {
+  const h = harness();
+  const accountWhite = h.helpers.accounts.register('Zirad', 'Guv3nliSifre!');
+  const accountBlack = h.helpers.accounts.register('OyuncuTwo', 'Guv3nliSifre!');
+  const white = h.createSocket('white', `tavla_session=${accountWhite.token}`);
+  const black = h.createSocket('black', `tavla_session=${accountBlack.token}`);
+  white.trigger('room:create', { name: 'Impersonated', targetScore: 3, playerToken: 'a'.repeat(48), autoDice: false });
+  const code = white.last('room:joined').roomCode;
+  black.trigger('room:join', { roomCode: code, name: 'Other', playerToken: 'b'.repeat(48), autoDice: false });
+  h.helpers.awardRoundTo(code, h.rooms.get(code), 'black', { forcedPoints: 3 });
+  assert.equal(h.helpers.getAccountStats(accountWhite.user.id).losses, 1);
+  assert.equal(h.helpers.getAccountStats(accountWhite.user.id).games, 1);
+  assert.equal(h.helpers.getAccountStats(accountBlack.user.id).wins, 1);
+  assert.equal(h.helpers.getAccountStats(accountBlack.user.id).winRate, 100);
+  black.trigger('history:request', { playerToken: 'b'.repeat(48) });
+  assert.equal(black.last('history:list').length, 1);
+  assert.equal(JSON.stringify(black.last('history:list')).includes('playerTokens'), false);
+  h.helpers.persistAll();
+  const snap = h.snapshot();
+  assert.equal(snap.history[0].userIds.black, accountBlack.user.id);
+  assert.equal(snap.users.length, 2);
+  assert.equal(snap.users[0].passwordHash.includes('Guv3nli'), false);
+  assert.equal(snap.sessions[0].hash.includes(accountWhite.token), false);
+});
+
+// v16: oda sahibinin izin verdiği maçlarda salt-okunur seyirci erişimi.
+function makeSpectatablePair({ visibility = 'public', permission = true } = {}) {
+  const h = harness();
+  const a = h.createSocket('host');
+  const b = h.createSocket('opponent');
+  const v = h.createSocket('viewer');
+  a.trigger('room:create', {
+    name: 'Beyaz', visibility, allowSpectators: permission,
+    targetScore: 7, playerToken: 'a'.repeat(36), autoDice: false
+  });
+  const roomCode = a.last('room:joined').roomCode;
+  b.trigger('room:join', { roomCode, name: 'Siyah', playerToken: 'b'.repeat(36), autoDice: false });
+  return { ...h, a, b, v, roomCode, room: h.rooms.get(roomCode) };
+}
+
+test('izin verilmeyen maçlar listelenmez, izlenemez', () => {
+  const { v, roomCode, room } = makeSpectatablePair({ permission: false });
+  assert.equal(room.allowSpectators, false);
+  assert.equal(v.last('matches:list').length, 0);
+  v.trigger('viewer:watch', { roomCode });
+  assert.match(v.last('room:error'), /izlemeye açık değil/i);
+  assert.equal(v.last('viewer:joined'), undefined);
+  assert.equal(room.spectators.size, 0);
+});
+
+test('herkese açık izlenebilir maç listelenir, oyuncuların skorlarını gösterir; gizli maç listelenmez', () => {
+  const publicMatch = makeSpectatablePair();
+  const list = publicMatch.v.last('matches:list');
+  assert.equal(list.length, 1);
+  assert.equal(list[0].roomCode, publicMatch.roomCode);
+  assert.equal(list[0].players.white, 'Beyaz');
+  assert.equal(list[0].players.black, 'Siyah');
+  assert.equal(list[0].targetScore, 7);
+  assert.equal(JSON.stringify(list).includes('playerToken'), false);
+  assert.equal(publicMatch.v.last('rooms:list').length, 0); // Maç başlamış odalar bekleme listesinde görünmez.
+  const privateMatch = makeSpectatablePair({ visibility: 'private' });
+  assert.deepEqual(privateMatch.v.last('matches:list'), []);
+  privateMatch.v.trigger('viewer:watch', { roomCode: privateMatch.roomCode });
+  assert.equal(privateMatch.v.last('viewer:joined').roomCode, privateMatch.roomCode);
+});
+
+test('seyirci sadece canlı oyun durumunu alır; oyuncu sohbeti ve yetki alanları gizlidir', () => {
+  const { a, b, v, room, roomCode, advance } = makeSpectatablePair();
+  a.trigger('chat:send', { text: 'Yalnızca rakibime özel' });
+  v.trigger('viewer:watch', { roomCode });
+  const snapshot = v.last('state:update');
+  assert.equal(v.last('viewer:joined').roomCode, roomCode);
+  assert.equal(snapshot.roomCode, roomCode);
+  assert.equal(snapshot.spectatorCount, 1);
+  assert.deepEqual(snapshot.chat, []);
+  assert.deepEqual(snapshot.game.moveOptions, []);
+  assert.equal(snapshot.game.canConfirm, false);
+  assert.equal(snapshot.game.canOfferDouble, false);
+  assert.equal(v.rooms.has(roomCode), false);
+  assert.equal(v.rooms.has(`watch:${roomCode}`), true);
+  assert.equal(JSON.stringify(snapshot).includes('playerToken'), false);
+  assert.equal(a.last('viewer:count').spectatorCount, 1);
+  const chatBefore = v.events.filter(event => event.name === 'chat:message').length;
+  b.trigger('chat:send', { text: 'Saklı mesaj' });
+  assert.equal(v.events.filter(event => event.name === 'chat:message').length, chatBefore);
+  a.trigger('dice:roll');
+  advance(1000);
+  assert.ok(room.game.pendingState);
+  assert.ok(v.events.some(event => event.name === 'dice:rolling'));
+  assert.ok(v.last('state:update').game.rolledPair);
+});
+
+test('seyirci hamle, zar, 2x, sohbet, rövanş ve oda kapatmaya müdahale edemez', () => {
+  const { v, a, room, roomCode } = makeSpectatablePair();
+  v.trigger('viewer:watch', { roomCode });
+  const oldState = structuredClone(room.game);
+  const chatSize = room.chat.length;
+  for (const [event, data] of [
+    ['dice:roll', {}], ['move:play', { from: 23, to: 22 }],
+    ['turn:confirm', {}], ['turn:reset', {}], ['double:offer', {}],
+    ['double:respond', { accept: true }], ['chat:send', { text: 'Hile' }],
+    ['match:rematch', {}], ['settings:autoDice', { enabled: false }], ['room:leave', {}]
+  ]) v.trigger(event, data);
+  assert.equal(JSON.stringify(room.game), JSON.stringify(oldState));
+  assert.equal(room.chat.length, chatSize);
+  assert.equal(a.last('room:closed'), undefined);
+  assert.equal(v.last('room:joined'), undefined);
+  assert.equal(v.last('room:error')?.includes('oyuncu oturumunu'), true);
+});
+
+test('izleyici çıkınca ve bağlantısı kopunca sayaç düşer, oda kapanmaz', () => {
+  const { createSocket, room, roomCode, v, a, rooms } = makeSpectatablePair();
+  const v2 = createSocket('viewer-two');
+  v.trigger('viewer:watch', { roomCode });
+  v2.trigger('viewer:watch', { roomCode });
+  assert.equal(a.last('viewer:count').spectatorCount, 2);
+  v.trigger('viewer:leave');
+  assert.equal(v.last('viewer:left'), undefined); // veri içermeyen olay
+  assert.equal(a.last('viewer:count').spectatorCount, 1);
+  v2.trigger('disconnect');
+  assert.equal(a.last('viewer:count').spectatorCount, 0);
+  assert.equal(rooms.has(roomCode), true);
+  assert.equal(room.spectators.size, 0);
+});
+
+test('izleyici tekrar bağlanır, izlerken oyuncu rolüne geçemez; oyuncu da izlemeye geçemez', () => {
+  const { a, v, roomCode, room, createSocket } = makeSpectatablePair();
+  v.trigger('viewer:watch', { roomCode });
+  v.trigger('viewer:watch', { roomCode });
+  assert.equal(room.spectators.size, 1);
+  v.trigger('room:join', { roomCode, playerToken: 'v'.repeat(36) });
+  assert.match(v.last('room:error'), /izlediğin maçtan çık/i);
+  a.trigger('viewer:watch', { roomCode });
+  assert.match(a.last('room:error'), /oynadığın odadan ayrıl/i);
+  v.trigger('disconnect');
+  const returned = createSocket('viewer-returned');
+  returned.trigger('viewer:watch', { roomCode });
+  assert.equal(returned.last('viewer:joined').roomCode, roomCode);
+  assert.equal(a.last('viewer:count').spectatorCount, 1);
+});
+
+test('sunucu yeniden başlatılınca izleme izni kalır, seyirci oturumları yüklenmez', () => {
+  const first = makeSpectatablePair({ visibility: 'private' });
+  first.v.trigger('viewer:watch', { roomCode: first.roomCode });
+  first.a.trigger('settings:autoDice', { enabled: false });
+  const saved = first.snapshot();
+  assert.equal(saved.rooms[0].allowSpectators, true);
+  assert.equal(JSON.stringify(saved).includes('spectators'), false);
+  const next = harness(saved);
+  const room = next.rooms.get(first.roomCode);
+  assert.equal(room.allowSpectators, true);
+  assert.equal(room.spectators.size, 0);
+  const view = next.createSocket('view-again');
+  view.trigger('viewer:watch', { roomCode: first.roomCode });
+  assert.equal(view.last('viewer:joined').roomCode, first.roomCode);
+});
+
+test('oda kapatılınca seyirciler ana menüye gönderilir', () => {
+  const { v, a, roomCode } = makeSpectatablePair();
+  v.trigger('viewer:watch', { roomCode });
+  a.trigger('room:leave');
+  assert.match(v.last('room:closed').reason, /oda kapatıldı/i);
+  assert.equal(v.rooms.has(`watch:${roomCode}`), false);
+});
+
+test('maç kazanıldığı anda izlenebilir canlı maç listesinden kaldırılır', () => {
+  const { a, v, roomCode, room, helpers } = makeSpectatablePair();
+  assert.equal(v.last('matches:list').length, 1);
+  room.game.scores.white = 6;
+  helpers.awardRoundTo(roomCode, room, 'white', { forcedPoints: 2 });
+  assert.equal(room.game.winner, 'white');
+  assert.deepEqual(v.last('matches:list'), []);
+  v.trigger('viewer:watch', { roomCode }); // Devam eden seyirci maçı izlemeye devam edebilir.
+  assert.equal(v.last('viewer:joined').roomCode, roomCode);
+  a.trigger('room:leave');
+  assert.ok(v.last('room:closed'));
+});
+
+test('tek odada en fazla 60 izleyici olabilir', () => {
+  const { createSocket, room, roomCode } = makeSpectatablePair();
+  for (let i = 0; i < 60; i++) {
+    const socket = createSocket(`watcher${i}`);
+    socket.trigger('viewer:watch', { roomCode });
+    assert.equal(socket.last('viewer:joined').roomCode, roomCode);
+  }
+  assert.equal(room.spectators.size, 60);
+  const overflow = createSocket('viewer61');
+  overflow.trigger('viewer:watch', { roomCode });
+  assert.match(overflow.last('room:error'), /kapasitesi doldu/i);
+  assert.equal(room.spectators.size, 60);
 });

@@ -1,6 +1,6 @@
 {
   "name": "tavla-online",
-  "version": "0.13.0",
+  "version": "0.16.0",
   "description": "Oda sistemiyle oynanan web tabanli tavla oyunu",
   "main": "server/server.js",
   "scripts": {
@@ -9,7 +9,8 @@
   },
   "dependencies": {
     "express": "^4.21.2",
-    "socket.io": "^4.8.1"
+    "socket.io": "^4.8.1",
+    "pg": "^8.16.3"
   },
   "engines": {
     "node": ">=20"

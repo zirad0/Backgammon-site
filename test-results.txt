@@ -1,0 +1,236 @@
+
+> tavla-online@0.14.0 test
+> node --test tests/*.test.js
+
+TAP version 13
+# Subtest: arayüzde yinelenen HTML kimliği yok, tek maç geçmişi ve büyütme aracı var
+ok 1 - arayüzde yinelenen HTML kimliği yok, tek maç geçmişi ve büyütme aracı var
+  ---
+  duration_ms: 1.771491
+  type: 'test'
+  ...
+# Subtest: mobil büyütme/sığdırma ve dar ekran kaydırma davranışları korunur
+ok 2 - mobil büyütme/sığdırma ve dar ekran kaydırma davranışları korunur
+  ---
+  duration_ms: 0.6022
+  type: 'test'
+  ...
+# Subtest: PostgreSQL şeması kurulur, maç kayıtları yeni süreç tarafından geri okunur
+ok 3 - PostgreSQL şeması kurulur, maç kayıtları yeni süreç tarafından geri okunur
+  ---
+  duration_ms: 3.271096
+  type: 'test'
+  ...
+# Subtest: PostgreSQL kayıtları aynı anda gelse bile son snapshot sırasıyla yazılır
+ok 4 - PostgreSQL kayıtları aynı anda gelse bile son snapshot sırasıyla yazılır
+  ---
+  duration_ms: 1.085297
+  type: 'test'
+  ...
+# Subtest: veritabanı kesilince oyun durur; tekrar bağlandığında yazı devam eder
+ok 5 - veritabanı kesilince oyun durur; tekrar bağlandığında yazı devam eder
+  ---
+  duration_ms: 4.014951
+  type: 'test'
+  ...
+# Subtest: bozuk PostgreSQL verisi silinmez, başlangıç durdurulur
+ok 6 - bozuk PostgreSQL verisi silinmez, başlangıç durdurulur
+  ---
+  duration_ms: 1.854204
+  type: 'test'
+  ...
+# Subtest: başlangıçta PostgreSQL ulaşılamıyorsa servis hatayı gizlemez
+ok 7 - başlangıçta PostgreSQL ulaşılamıyorsa servis hatayı gizlemez
+  ---
+  duration_ms: 0.849985
+  type: 'test'
+  ...
+# Subtest: bağlantı tekrar sağlanınca sağlık kontrolü servisi açar
+ok 8 - bağlantı tekrar sağlanınca sağlık kontrolü servisi açar
+  ---
+  duration_ms: 0.687611
+  type: 'test'
+  ...
+# Subtest: oda oluşturma, katılma, özel token saklama ve ikinci oda engeli
+ok 9 - oda oluşturma, katılma, özel token saklama ve ikinci oda engeli
+  ---
+  duration_ms: 26.583185
+  type: 'test'
+  ...
+# Subtest: 2x teklifi yalnızca uygun aşamada yapılır; cevap verene kadar zar atılmaz
+ok 10 - 2x teklifi yalnızca uygun aşamada yapılır; cevap verene kadar zar atılmaz
+  ---
+  duration_ms: 7.219606
+  type: 'test'
+  ...
+# Subtest: 2x reddi iki puan verir, yeni elde kazananı başlatır
+ok 11 - 2x reddi iki puan verir, yeni elde kazananı başlatır
+  ---
+  duration_ms: 8.380747
+  type: 'test'
+  ...
+# Subtest: normal oyun kazanılınca yeni el kazananla başlar; mars iki puandır
+ok 12 - normal oyun kazanılınca yeni el kazananla başlar; mars iki puandır
+  ---
+  duration_ms: 5.536707
+  type: 'test'
+  ...
+# Subtest: rövanş yalnızca maç bitince ve iki oyuncunun onayıyla başlar
+ok 13 - rövanş yalnızca maç bitince ve iki oyuncunun onayıyla başlar
+  ---
+  duration_ms: 4.258418
+  type: 'test'
+  ...
+# Subtest: odadan çıkış odanın kapanmasını ve iki oyuncunun bilgilendirilmesini sağlar
+ok 14 - odadan çıkış odanın kapanmasını ve iki oyuncunun bilgilendirilmesini sağlar
+  ---
+  duration_ms: 7.478922
+  type: 'test'
+  ...
+# Subtest: tekrar bağlanınca eski soket devreden çıkarılır
+ok 15 - tekrar bağlanınca eski soket devreden çıkarılır
+  ---
+  duration_ms: 6.282494
+  type: 'test'
+  ...
+# Subtest: rakip kopunca otomatik zar durur ve yeniden katıldığında devam eder
+ok 16 - rakip kopunca otomatik zar durur ve yeniden katıldığında devam eder
+  ---
+  duration_ms: 6.803525
+  type: 'test'
+  ...
+# Subtest: iki kat teklifi kabul edilince mars 4 puan olur, sonraki eli yine kazanan açar
+ok 17 - iki kat teklifi kabul edilince mars 4 puan olur, sonraki eli yine kazanan açar
+  ---
+  duration_ms: 4.33966
+  type: 'test'
+  ...
+# Subtest: teklif beklerken rakip koparsa teklif iptal edilir, dönüşte tekrar oynanır
+ok 18 - teklif beklerken rakip koparsa teklif iptal edilir, dönüşte tekrar oynanır
+  ---
+  duration_ms: 4.671331
+  type: 'test'
+  ...
+# Subtest: bağlantısı düşmüş oyuncu kimliğiyle odadan çıkılabilir
+ok 19 - bağlantısı düşmüş oyuncu kimliğiyle odadan çıkılabilir
+  ---
+  duration_ms: 4.560934
+  type: 'test'
+  ...
+# Subtest: zar mantığı ile taş toplama ve vurma temel kural kontrolleri
+ok 20 - zar mantığı ile taş toplama ve vurma temel kural kontrolleri
+  ---
+  duration_ms: 0.477488
+  type: 'test'
+  ...
+# Subtest: siyah oyuncu maçı kazanınca rövanşa da siyah başlar
+ok 21 - siyah oyuncu maçı kazanınca rövanşa da siyah başlar
+  ---
+  duration_ms: 5.305882
+  type: 'test'
+  ...
+# Subtest: herkese açık bekleyen odalar listelenir, özel odalar listelenmez
+ok 22 - herkese açık bekleyen odalar listelenir, özel odalar listelenmez
+  ---
+  duration_ms: 4.089048
+  type: 'test'
+  ...
+# Subtest: herkese açık odaya ikinci oyuncu girince oda listeden anında kalkar
+ok 23 - herkese açık odaya ikinci oyuncu girince oda listeden anında kalkar
+  ---
+  duration_ms: 2.704075
+  type: 'test'
+  ...
+# Subtest: bekleyen herkese açık oda bağlantı kesilince gizlenir, geri gelince görünür
+ok 24 - bekleyen herkese açık oda bağlantı kesilince gizlenir, geri gelince görünür
+  ---
+  duration_ms: 2.831605
+  type: 'test'
+  ...
+# Subtest: geçersiz görünürlük varsayılan özel olur ve özel odaya kodla katılınabilir
+ok 25 - geçersiz görünürlük varsayılan özel olur ve özel odaya kodla katılınabilir
+  ---
+  duration_ms: 2.239156
+  type: 'test'
+  ...
+# Subtest: hile denemesi: sahte zar, geçersiz hamle ve rakip sırasına müdahale reddedilir
+ok 26 - hile denemesi: sahte zar, geçersiz hamle ve rakip sırasına müdahale reddedilir
+  ---
+  duration_ms: 3.36105
+  type: 'test'
+  ...
+# Subtest: bağlantı koparsa yarım taş animasyonu durur ve aynı hamle güvenle oynanabilir
+ok 27 - bağlantı koparsa yarım taş animasyonu durur ve aynı hamle güvenle oynanabilir
+  ---
+  duration_ms: 6.893484
+  type: 'test'
+  ...
+# Subtest: eski oturum yeni oturumu odadan çıkaramaz
+ok 28 - eski oturum yeni oturumu odadan çıkaramaz
+  ---
+  duration_ms: 3.28485
+  type: 'test'
+  ...
+# Subtest: yeniden başlatma sonrası maç durumu, iki oyuncu ve özel oda korunur
+ok 29 - yeniden başlatma sonrası maç durumu, iki oyuncu ve özel oda korunur
+  ---
+  duration_ms: 10.576159
+  type: 'test'
+  ...
+# Subtest: 15 dakika içinde dönmeyen oyuncunun odası kapanır ve yarım kalan maç kayda girer
+ok 30 - 15 dakika içinde dönmeyen oyuncunun odası kapanır ve yarım kalan maç kayda girer
+  ---
+  duration_ms: 2.882588
+  type: 'test'
+  ...
+# Subtest: biten maçın sonucu kaydedilir ve yalnızca ilgili oyuncu geçmişi görür
+ok 31 - biten maçın sonucu kaydedilir ve yalnızca ilgili oyuncu geçmişi görür
+  ---
+  duration_ms: 3.455835
+  type: 'test'
+  ...
+# Subtest: sunucu zarı geçerli ve rastgele; istemci sonucu belirleyemez
+ok 32 - sunucu zarı geçerli ve rastgele; istemci sonucu belirleyemez
+  ---
+  duration_ms: 0.564565
+  type: 'test'
+  ...
+# Subtest: hatalı websocket veri tipleri ve çok sık istek güvenle reddedilir
+ok 33 - hatalı websocket veri tipleri ve çok sık istek güvenle reddedilir
+  ---
+  duration_ms: 6.782759
+  type: 'test'
+  ...
+# Subtest: WebSocket isteği aynı siteden gelmeli; yabancı origin reddedilir
+ok 34 - WebSocket isteği aynı siteden gelmeli; yabancı origin reddedilir
+  ---
+  duration_ms: 1.764928
+  type: 'test'
+  ...
+# Subtest: üretim PostgreSQL kuruluysa kayıt yüklenip sonra HTTP servis başlar
+ok 35 - üretim PostgreSQL kuruluysa kayıt yüklenip sonra HTTP servis başlar
+  ---
+  duration_ms: 20.823722
+  type: 'test'
+  ...
+# Subtest: üretimde DATABASE_URL eksikse güvensiz geçici dosya ile başlatılmaz
+ok 36 - üretimde DATABASE_URL eksikse güvensiz geçici dosya ile başlatılmaz
+  ---
+  duration_ms: 6.070942
+  type: 'test'
+  ...
+# Subtest: kalıcı kayıt dosyası atomik yazılır, yeniden başlayan süreçten geri okunur
+ok 37 - kalıcı kayıt dosyası atomik yazılır, yeniden başlayan süreçten geri okunur
+  ---
+  duration_ms: 148.174682
+  type: 'test'
+  ...
+1..37
+# tests 37
+# suites 0
+# pass 37
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 376.225432

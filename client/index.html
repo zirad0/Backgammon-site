@@ -31,10 +31,44 @@
       <div class="lobbyHero">
         <div class="lobbyEyebrow">ARKADAŞLARINLA CANLI TAVLA</div>
         <h1>Her yerde. Her zaman.<br /><span>Birlikte tavla.</span></h1>
-        <p>İndirme yok, üyelik yok. Bir oda aç, arkadaşına bağlantıyı gönder, zarları at.</p>
+        <p>Misafir olarak hemen oyna veya ücretsiz hesap açıp galibiyetlerini kaydet. Oda aç, arkadaşına bağlantıyı gönder, zarları at.</p>
         <div class="heroChips"><span>⚡ Anında oda</span><span>🎲 Gerçek zamanlı</span><span>🔒 Özel oda kodu</span></div>
       </div>
 
+      <section class="accountSection" aria-label="Oyuncu hesabı">
+        <div id="accountGuest" class="accountGuest">
+          <div class="accountIntro">
+            <span class="accountIcon" aria-hidden="true">♟</span>
+            <div><h2>Oyuncu hesabı</h2><p>Hesap aç, galibiyetlerini ve maç geçmişini her cihazdan gör. İstersen misafir olarak devam et.</p></div>
+          </div>
+          <div class="accountFormArea">
+            <div class="accountTabs" role="group" aria-label="Hesap işlemi">
+              <button id="authLoginTab" type="button" class="accountTab active" aria-pressed="true">Giriş yap</button>
+              <button id="authRegisterTab" type="button" class="accountTab" aria-pressed="false">Kayıt ol</button>
+            </div>
+            <form id="authForm" class="accountForm" autocomplete="on">
+              <label for="authUsername">Kullanıcı adı</label>
+              <input id="authUsername" name="username" type="text" minlength="3" maxlength="20" pattern="[A-Za-z0-9_]{3,20}" autocomplete="username" placeholder="Kullanıcı adın" required />
+              <label for="authPassword">Şifre</label>
+              <input id="authPassword" name="password" type="password" minlength="8" maxlength="128" autocomplete="current-password" placeholder="En az 8 karakter" required />
+              <button id="authSubmitBtn" type="submit" class="primary accountSubmit">Giriş yap</button>
+              <p id="authMessage" class="authMessage" role="status" aria-live="polite"></p>
+            </form>
+          </div>
+        </div>
+        <div id="accountSignedIn" class="accountSignedIn hidden">
+          <div class="accountSignedInHeader">
+            <div><span class="accountLabel">OYUNCU PROFİLİN</span><h2 id="profileUsername">@oyuncu</h2><p>Oynadığın maçların istatistikleri hesabında saklanır.</p></div>
+            <button id="authLogoutBtn" type="button" class="accountLogoutBtn">Çıkış yap</button>
+          </div>
+          <div class="accountStats" aria-label="Oyuncu istatistikleri">
+            <div><strong id="profileGames">0</strong><small>Maç</small></div>
+            <div><strong id="profileWins">0</strong><small>Galibiyet</small></div>
+            <div><strong id="profileLosses">0</strong><small>Mağlubiyet</small></div>
+            <div><strong id="profileRate">%0</strong><small>Kazanma oranı</small></div>
+          </div>
+        </div>
+      </section>
       <div class="forms lobbyForms">
         <div class="panel lobbyPanel">
           <div class="lobbyPanelIcon" aria-hidden="true">＋</div>
@@ -62,6 +96,10 @@
               </label>
             </div>
           </fieldset>
+          <label class="spectatorPermit" for="allowSpectatorsCheckbox">
+            <input id="allowSpectatorsCheckbox" type="checkbox" />
+            <span class="spectatorPermitText"><strong>👁 İzleyicilere izin ver</strong><small>Maçı başkaları canlı izleyebilir; hamle yapamazlar. Özel odalarda kod gerekir.</small></span>
+          </label>
           <button id="createRoomBtn" class="primary lobbyCTA">Oda Aç</button>
         </div>
 
@@ -74,6 +112,7 @@
           <label data-text="roomCodeLabel">Oda Kodu</label>
           <input id="roomCodeInput" maxlength="5" placeholder="5 haneli oda kodu" autocapitalize="characters" autocomplete="off" />
           <button id="joinRoomBtn" class="lobbyCTA secondaryCTA">Odaya Katıl</button>
+          <button id="watchRoomBtn" type="button" class="lobbyWatchBtn">👁 Oda Koduyla Maçı İzle</button>
         </div>
       </div>
       <div id="lobbyMessage" class="message" role="status" aria-live="polite"></div>
@@ -90,12 +129,25 @@
           <div class="emptyPublicRooms">Açık oda aranıyor...</div>
         </div>
       </section>
+      <section class="publicRoomsSection liveMatchesSection" aria-labelledby="liveMatchesTitle">
+        <div class="publicRoomsHeader">
+          <div>
+            <span class="publicRoomsEyebrow">👁 SEYİRCİ MODU</span>
+            <h2 id="liveMatchesTitle">İzlenebilir canlı maçlar <span id="liveMatchesCount" class="publicRoomsCount">0</span></h2>
+            <p>Oyunu başlamış, seyirci izni açık herkese açık maçları izle. Özel maçlar burada görünmez.</p>
+          </div>
+          <button id="refreshLiveMatchesBtn" type="button" class="refreshRoomsBtn">↻ Yenile</button>
+        </div>
+        <div id="liveMatchesList" class="publicRoomsList" aria-live="polite">
+          <div class="emptyPublicRooms">Canlı maçlar yükleniyor...</div>
+        </div>
+      </section>
       <section class="matchHistorySection" aria-labelledby="matchHistoryTitle">
         <div class="matchHistoryHeading">
           <div>
             <span class="publicRoomsEyebrow">KAYITLI MAÇLAR</span>
             <h2 id="matchHistoryTitle">Son maçlarım</h2>
-            <p>Bu tarayıcı oturumundaki oyuncu anahtarına bağlı maç sonuçların.</p>
+            <p id="historyDescription">Misafir maçları bu sekmeye, hesaplı maçlar profiline kaydedilir.</p>
           </div>
           <button id="refreshHistoryBtn" type="button" class="refreshRoomsBtn">↻ Yenile</button>
         </div>
@@ -115,7 +167,7 @@
       <div class="topbar card">
         <div>
           <div class="brand"><span data-text="brand">Tavla</span></div>
-          <div class="roomRow">Oda Kodu: <span id="roomCodeLabel">-----</span> <span id="gameVisibilityBadge" class="gameVisibilityBadge">Özel oda</span> <button id="copyRoomBtn" class="tiny" data-text="copy">Kopyala</button></div>
+          <div class="roomRow">Oda Kodu: <span id="roomCodeLabel">-----</span> <span id="gameVisibilityBadge" class="gameVisibilityBadge">Özel oda</span> <span id="viewerCountBadge" class="viewerCountBadge hidden">👁 0 izleyici</span> <button id="copyRoomBtn" class="tiny" data-text="copy">Kopyala</button></div>
           <div id="roomLinkPreview" class="roomLinkPreview muted"></div>
         </div>
         <div class="statusActions">
@@ -127,6 +179,7 @@
         </div>
       </div>
 
+      <div id="spectatorBanner" class="spectatorBanner hidden" role="status">👁 Seyirci modundasın. Maçı canlı izleyebilirsin; oyun kontrolleri kapalıdır.</div>
       <div class="scoreboard card">
         <div id="whiteCard" class="playerCard">
           <div class="avatar whiteAvatar"></div>

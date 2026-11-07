@@ -23,3 +23,12 @@ test('mobil büyütme/sığdırma ve dar ekran kaydırma davranışları korunur
   assert.match(js, /window\.addEventListener\('resize', updateBoardScale/);
   assert.match(js, /checker\.style\.width\s*=\s*`\$\{size\}px`/);
 });
+
+test('izleyici izni ve canlı maç listesi arayüzde var; seyirci kontrolleri gizlenir', () => {
+  for (const id of ['allowSpectatorsCheckbox','watchRoomBtn','liveMatchesList',
+    'liveMatchesCount','spectatorBanner','viewerCountBadge']) assert.match(html, new RegExp(`id="${id}"`));
+  assert.match(css, /#gameScreen\.spectatorMode \.confirmPanel/);
+  assert.match(js, /socket\.on\('viewer:joined'/);
+  assert.match(js, /socket\.on\('matches:list'/);
+  assert.match(js, /socket\.emit\('viewer:leave'/);
+});

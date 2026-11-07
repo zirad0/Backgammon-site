@@ -1,60 +1,45 @@
-# Tavla Online v13 — GitHub + Render Dağıtımı ve Kalıcı Kayıt
+# Tavla Online v16 — GitHub / Render Yayın Rehberi
 
-## GitHub'a güncelleme
+## A) v15’ten v16’ya geçiş
 
-1. ZIP'i bilgisayarına indirip aç.
-2. GitHub'daki `Backgammon-site` deponun **köküne** `client/`, `server/`, `tests/`, `package.json`, `package-lock.json`, `render.yaml`, `README.md` ve bu rehberi yükle / mevcut dosyaların üzerine yaz.
-3. Yeni `server/storage.js` ve `tests/storage.test.js` dosyalarının da depoya eklendiğini kontrol et.
-4. GitHub'da **Commit changes** işlemini yap. Render otomatik dağıtım açıksa değişiklikler yayınlanır; değilse **Manual Deploy > Deploy latest commit**.
-5. `node_modules/`, `data/`, `matches.json`, oyuncu tokenları, `.env` dosyaları ve gerçek kayıtları GitHub'a yükleme.
+1. Var olan Render web hizmetinin **PostgreSQL `DATABASE_URL`** değeriyle çalıştığından emin ol. Gerekirse Render → Web Service → Environment üzerinden oluşturduğun PostgreSQL'in Internal Database URL bağlantısını ekle. Bu değeri GitHub'a veya sohbetlere kopyalama.
+2. Önemli oyun verileri varsa önce PostgreSQL **yedeklemesi** yap. v16 mevcut v15 kayıt biçimini korur ve odalara `allowSpectators` alanı ekler. Eski odalar izlemeye kapalı açılır.
+3. ZIP'in içindeki `client/`, `server/`, `tests/`, `package.json`, `package-lock.json`, `render.yaml`, `.env.example`, `README.md` ve bu rehberi GitHub deponun kök dizininde eskileri değiştirerek yükle.
+4. Render ayarlarında Build Command `npm ci`, Start Command `npm start`, Health Check Path `/health`, `NODE_ENV=production`, `DATABASE_URL=<gizli PostgreSQL URL>` olmalı.
+5. Otomatik deploy açıksa GitHub commit'inden sonra dağıtılır. Değilse Render → Manual Deploy → Deploy latest commit.
+6. `/health` yanıtında `ok: true`, `version: v16`, `storage: postgres` kontrol et. Render loglarında `postgres_connected` ve `server_listening` arayabilirsin.
 
-## Web servisi ayarları
+## B) Seyirci modu kabul testi
 
-- **Runtime:** Node
-- **Build:** `npm ci`
-- **Start:** `npm start`
-- **Health:** `/health`
-- **Port:** Render'ın sağladığı `PORT` (kod otomatik okur)
-- **Instance:** Tek örnek / tek Node süreci
+- [ ] Herkese açık + izleyici izni **kapalı** oda oluştur: rakip gelince maç seyirci listesinde **görünmez**; kodla izleme de reddedilir.
+- [ ] Herkese açık + izleyici izni **açık** oda oluştur: ikinci oyuncu katılana kadar yalnızca bekleyen oda listesinde görünür; maç başlayınca bekleyenlerden kalkar ve "İzlenebilir canlı maçlar" listesine geçer.
+- [ ] Üçüncü ayrı tarayıcı/sekmede "İzle"ye bas: oyuncuların adları, skor, zar ve taşlar anlık güncellenir; hamle/2x/sohbet/rövanş butonları yoktur. Sunucudan sahte `move:play`, `dice:roll` vs. gönderildiğinde de işlem yapılmaz.
+- [ ] Özel + izleyici izni **açık** oda oluştur: özel maç herkesin listesinden gizlidir; yalnızca doğru oda koduyla izlenebilir.
+- [ ] Seyirci "İzlemeyi Bırak" seçince iki oyuncunun oyunu devam eder ve sayaç azalır; seyirci yenileyince ya da ağ koptuğunda tekrar bağlanabilir.
+- [ ] Oda kapatılırsa seyirci ana sayfaya döner; maç kazanılırsa seyirci listeden kaldırılır.
+- [ ] Oda sahibi izleyici izni açıkken sunucu/Render yeniden başlatılırsa izin kaybolmaz. Seyirciler bağlantı yenilendiğinde geri döner.
+- [ ] Gerçek telefon genişliklerinde (ör. 320, 375, 430 px), tablette, masaüstünde görsel test yap.
 
-## Render'da maç kayıtlarını gerçekten kalıcı tutmak
+## C) Diğer yayın öncesi kabul testleri
 
-### Seçenek A — Tek sunucu için Persistent Disk (bu sürümde kod desteği var)
+- [ ] Mobil ve masaüstünde misafir olarak oda oluşturuluyor/katılınıyor.
+- [ ] Aynı kullanıcı adı ile iki kez kayıt olunamıyor; yanlış şifre reddediliyor.
+- [ ] İki farklı tarayıcıda farklı hesaplarla giriş yapılabiliyor; isimler odada doğru görünüyor.
+- [ ] Başka bir misafir kayıtlı oyuncunun adını kullanamıyor.
+- [ ] Kayıtlı oyuncu başka bir cihazla aynı hesabına girip açık maçına yeniden bağlanıyor; eski bağlantı devreden çıkıyor.
+- [ ] Maç tamamlandığında kazanana bir galibiyet, kaybedene bir mağlubiyet yazılıyor.
+- [ ] Maç geçmişi hesapla başka bir tarayıcıda giriş yapınca görünüyor.
+- [ ] Çıkış yapınca profil gizleniyor ve misafir olarak oynanabiliyor.
+- [ ] Render sunucusu yeniden başlatıldığında hesaplar, oturumlar, maç geçmişi ve aktif odalar PostgreSQL'den geri geliyor.
+- [ ] `DATABASE_URL` bozulduğunda sağlık kontrolü 503 veriyor; sistem kalıcı kayıt varmış gibi davranmıyor.
 
-1. Render hesabında **persistent disk destekleyen** bir servis planına geç; ücretsiz web servisinde bu özellik kullanılamayabilir / bulunmaz.
-2. Web Service → **Disks** bölümünden örneğin `/var/data` konumuna disk bağla.
-3. Web Service → **Environment** bölümüne `TAVLA_DATA_FILE` değeri olarak `/var/data/matches.json` ekle.
-4. Yeni dağıtımdan sonra bir oyun başlat ve sunucuyu yeniden başlatıp aynı sekmelerle maça geri dönmeyi dene.
-5. Disk veri içereceğinden erişim ve yedekleme politikası uygula. Tek bir yerel JSON dosyası, yüksek eşzamanlı kullanım için veritabanının yerini tutmaz.
+## D) Önemli güvenlik ve operasyon notları
 
-### Seçenek B — Render ücretsiz servis (geçici kayıt)
+- Gerçek şifreleri kullanıcıdan asla isteme ve hiçbir şifreyi, `tavla_session` çerezini veya `DATABASE_URL` değerini hata kayıtlarına/görsel ekran görüntülerine koyma.
+- `NODE_ENV=production` ayarında oturum çerezi `Secure; HttpOnly; SameSite=Strict` olur. Siteni **HTTPS** üzerinden yayınla.
+- Parola sıfırlama, e-posta doğrulama, Google/Discord sosyal giriş ve hesap silme paneli bu sürümde bulunmuyor; herkese açık büyük kullanıcı kitlesi hedefliyorsan önce ekle.
+- Şifreler `scrypt` ile özetlenmiştir fakat DB tek büyük JSONB belgesi kullandığı için ölçekli kullanıcı trafiğinde ayrı hesap/oturum tablolarına geçmek gerekir.
+- Render Free PostgreSQL uzun vadede yedeksiz ve sınırlıdır; planın güncel süresi/disk koşullarını kontrol et. Yedek al; süresi dolan DB'deki hesapları ve maçları geri getiremeyebilirsin.
+- Eski v14 maçları anonim oyuncu kimlikleriyle kaydedildiyse yeni hesap açınca otomatik olarak hesaba aktarılmaz.
 
-Hiçbir ayar yapmazsan `data/matches.json` dosyasına kayıt yapılır ama **Render yeniden dağıtıldığında veya yeniden oluşturulduğunda veri silinebilir**. Ücretsiz planda gerçek kalıcılık **yoktur**. İleride PostgreSQL gibi bir dış veritabanına geçilebilir fakat **bu ZIP bunu henüz desteklemez**.
-
-## Yayın sonrası manuel kontrol
-
-- [ ] İki ayrı tarayıcıdan özel oda aç/katıl, geçerli hamle yap.
-- [ ] Herkese açık oda beklerken listede; ikinci kişi girince listede değil.
-- [ ] Maç sırasında bir oyuncuda interneti kes, diğer oyuncu “duraklatıldı” durumunu görsün.
-- [ ] Aynı sekme tekrar bağlandığında tahtanın, zarların ve sıranın korunduğunu doğrula.
-- [ ] Uzun süre dönmeyen oyuncuda 15 dakika sonra odanın kapandığını ve maçın yarıda kaldı olarak kaydedildiğini doğrula.
-- [ ] Maç bitince ana sayfadaki “Son maçlarım” bölümünü kontrol et.
-- [ ] Kalıcı disk bağladıysan sunucuyu yeniden başlat, devam eden odanın yüklendiğini doğrula.
-- [ ] Farklı oyuncu anahtarıyla başka kişinin maç geçmişi görünmesin.
-- [ ] Telefon görünümü, zar/2x/hamle sırası ve odadan çıkış kontrolü.
-
-## Önemli sınırlar
-
-- Oyuncu oturumu ve arşiv erişimi sekmeye özgü gizli anahtara bağlıdır; üyelik/hesap sistemi yoktur.
-- Bir oyuncunun sekmesi tamamen kapatılırsa otomatik hesap kurtarma garanti edilmez.
-- Sistem tek sunuculu ve dosya tabanlıdır. Çoklu Node örnekleri ya da yatay ölçekleme için ortak veritabanı ve Socket.IO adapter gereklidir.
-- Otomatik testler üretim ağında iki gerçek cihazla yapılan uçtan uca testlerin yerine geçmez.
-
-## v13 mobil ve ekran çözünürlüğü kontrolü
-
-- [ ] 320×568, 375×812, 390×844, 430×932 çözünürlüklerinde oyun ekranında tahta, zarlar ve işlem butonları birbirini örtmesin.
-- [ ] Telefonu yatay çevir; yatay sayfa taşması olmasın.
-- [ ] **Tahtayı büyüt** düğmesine bas; yalnızca tahta alanı yatay kaydırılsın. **Ekrana sığdır** ile geri dön.
-- [ ] 180 CSS pikseli gibi çok dar ekranda tahta kaydırılabilir olsun ve tüm sayfa yatay taşmasın.
-- [ ] 1280, 1920, 2560 ve 3840 genişliklerinde masaüstü arayüz merkezde kalsın.
-- [ ] İki gerçek cihazda aynı maçta dokunarak taş seçme ve taşıma işlemini dene (tarayıcı simülasyonu bu testi tamamıyla karşılamaz).
+**Test durumu:** Otomatik testler 56/56 başarılı; simüle edilmiş seyirci arayüzü çeşitli ekran genişliklerinde kontrol edildi. Gerçek Render PostgreSQL ve iki gerçek cihazla uçtan uca canlı bağlantı testi henüz yapılmadı.

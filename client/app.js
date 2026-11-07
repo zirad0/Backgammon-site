@@ -33,6 +33,10 @@ const state = {
   lastMatchSummaryId: null,
   chatMessages: [],
   publicRooms: [],
+  liveMatches: [],
+  isSpectator: false,
+  account: null,
+  authMode: 'login',
   theme: storedPrefs.theme || 'classic',
   skin: storedPrefs.skin || 'classic',
   autoDice: storedPrefs.autoDice !== false,
@@ -200,6 +204,121 @@ const publicRoomsListEl = $('publicRoomsList');
 const publicRoomsCountEl = $('publicRoomsCount');
 const refreshPublicRoomsBtn = $('refreshPublicRoomsBtn');
 const gameVisibilityBadge = $('gameVisibilityBadge');
+const spectatorBanner = $('spectatorBanner');
+const viewerCountBadge = $('viewerCountBadge');
+const allowSpectatorsCheckbox = $('allowSpectatorsCheckbox');
+const watchRoomBtn = $('watchRoomBtn');
+const liveMatchesListEl = $('liveMatchesList');
+const liveMatchesCountEl = $('liveMatchesCount');
+const refreshLiveMatchesBtn = $('refreshLiveMatchesBtn');
+
+const accountGuest = $('accountGuest');
+const accountSignedIn = $('accountSignedIn');
+const authForm = $('authForm');
+const authLoginTab = $('authLoginTab');
+const authRegisterTab = $('authRegisterTab');
+const authSubmitBtn = $('authSubmitBtn');
+const authUsername = $('authUsername');
+const authPassword = $('authPassword');
+const authMessage = $('authMessage');
+const authLogoutBtn = $('authLogoutBtn');
+const historyDescription = $('historyDescription');
+
+function renderAccount() {
+  const loggedIn = !!state.account?.user;
+  accountGuest?.classList.toggle('hidden', loggedIn);
+  accountSignedIn?.classList.toggle('hidden', !loggedIn);
+  if (loggedIn) {
+    const { user, stats = {} } = state.account;
+    $('profileUsername').textContent = `@${user.username}`;
+    $('profileGames').textContent = String(stats.games || 0);
+    $('profileWins').textContent = String(stats.wins || 0);
+    $('profileLosses').textContent = String(stats.losses || 0);
+    $('profileRate').textContent = `%${stats.winRate || 0}`;
+  }
+  if (historyDescription) historyDescription.textContent = loggedIn
+    ? 'Hesabına ait maç sonuçları farklı cihazlarda da görünür.'
+    : 'Misafir maçları bu sekmeye bağlıdır. Kalıcı istatistikler için ücretsiz hesap açabilirsin.';
+  for (const input of [createName, joinName]) {
+    if (!input) continue;
+    input.disabled = loggedIn;
+    input.value = loggedIn ? state.account.user.username : '';
+    input.placeholder = loggedIn ? 'Hesap adın' : 'Oyuncu adın';
+  }
+}
+function setAuthMode(mode) {
+  state.authMode = mode === 'register' ? 'register' : 'login';
+  const registering = state.authMode === 'register';
+  authLoginTab.classList.toggle('active', !registering);
+  authRegisterTab.classList.toggle('active', registering);
+  authLoginTab.setAttribute('aria-pressed', String(!registering));
+  authRegisterTab.setAttribute('aria-pressed', String(registering));
+  authSubmitBtn.textContent = registering ? 'Ücretsiz kayıt ol' : 'Giriş yap';
+  authPassword.autocomplete = registering ? 'new-password' : 'current-password';
+  authPassword.value = '';
+  authMessage.textContent = '';
+}
+async function accountRequest(url, payload) {
+  const response = await fetch(url, {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload || {})
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || 'İşlem gerçekleştirilemedi.');
+  return result;
+}
+let authRefreshGeneration = 0;
+async function refreshAccount() {
+  const requestGeneration = ++authRefreshGeneration;
+  try {
+    const response = await fetch('/api/me', { credentials: 'same-origin', cache: 'no-store' });
+    if (!response.ok) throw new Error('Hesap bilgileri alınamadı.');
+    const result = await response.json();
+    if (requestGeneration !== authRefreshGeneration) return;
+    state.account = result.authenticated ? result : null;
+    renderAccount();
+    if (socket.connected) requestMyHistory();
+  } catch { // Bağlantı veya veritabanı kısa süreli kesilmiş olabilir.
+    if (authMessage) authMessage.textContent = 'Hesap bilgileri şu anda alınamadı.';
+  }
+}
+authLoginTab?.addEventListener('click', () => setAuthMode('login'));
+authRegisterTab?.addEventListener('click', () => setAuthMode('register'));
+authForm?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (authSubmitBtn.disabled) return;
+  authSubmitBtn.disabled = true;
+  authMessage.textContent = '';
+  try {
+    const result = await accountRequest(`/api/auth/${state.authMode}`, {
+      username: authUsername.value.trim(), password: authPassword.value
+    });
+    authRefreshGeneration++;
+    state.account = result;
+    authPassword.value = '';
+    renderAccount();
+    // Socket.IO ilk el sıkışma çerezini yenilesin; güvenli hesap kimliği yalnızca sunucuda doğrulanır.
+    socket.disconnect();
+    socket.connect();
+    showToast(`Hoş geldin, ${result.user.username}!`, 'success');
+  } catch (error) { authMessage.textContent = error.message; }
+  finally { authSubmitBtn.disabled = false; }
+});
+authLogoutBtn?.addEventListener('click', async () => {
+  authLogoutBtn.disabled = true;
+  try {
+    await accountRequest('/api/auth/logout');
+    authRefreshGeneration++;
+    state.account = null;
+    renderAccount();
+    socket.disconnect();
+    socket.connect();
+    showToast('Hesabından çıkış yaptın. Misafir olarak oynayabilirsin.');
+  } catch (error) { showToast(error.message, 'warning'); }
+  finally { authLogoutBtn.disabled = false; }
+});
+
 
 
 function showToast(message, variant = 'info') {
@@ -286,7 +405,7 @@ function clearSelection() {
 }
 
 function isWhite() {
-  return state.me.color === 'white';
+  return state.me.color !== 'black'; // Seyirci modu varsayılan olarak beyaz perspektifini izler.
 }
 
 function topPlayerColor() {
@@ -294,7 +413,7 @@ function topPlayerColor() {
 }
 
 function bottomPlayerColor() {
-  return state.me.color || 'white';
+  return state.me.color === 'black' ? 'black' : 'white';
 }
 
 function perspectiveTopIndices() {
@@ -380,6 +499,10 @@ function escapeHtml(text) {
 function renderChat() {
   if (!chatMessagesEl) return;
   chatMessagesEl.innerHTML = '';
+  if (state.isSpectator) {
+    chatMessagesEl.textContent = 'Oyuncuların özel sohbeti izleyicilere gösterilmez.';
+    return;
+  }
   const messages = state.chatMessages || [];
   if (!messages.length) {
     chatMessagesEl.innerHTML = '<div class="muted">Henüz mesaj yok.</div>';
@@ -449,6 +572,57 @@ function renderPublicRooms() {
   }
 }
 
+function renderLiveMatches() {
+  if (!liveMatchesListEl || !liveMatchesCountEl) return;
+  const matches = state.liveMatches || [];
+  liveMatchesCountEl.textContent = String(matches.length);
+  liveMatchesListEl.replaceChildren();
+  if (!matches.length) {
+    const empty = document.createElement('div');
+    empty.className = 'emptyPublicRooms';
+    empty.textContent = socket.connected
+      ? 'Şu an izleyicilere açık canlı maç yok.'
+      : 'Sunucu bağlantısı bekleniyor...';
+    liveMatchesListEl.appendChild(empty);
+    return;
+  }
+  for (const match of matches) {
+    const card = document.createElement('article');
+    card.className = 'publicRoomCard liveMatchCard';
+    const details = document.createElement('div');
+    details.className = 'publicRoomDetails';
+    const heading = document.createElement('strong');
+    heading.className = 'publicRoomCode';
+    heading.textContent = `🔴 ${match.players?.white || 'Beyaz'} — ${match.players?.black || 'Siyah'}`;
+    const meta = document.createElement('div');
+    meta.className = 'publicRoomMeta';
+    meta.textContent = `${match.scores?.white ?? 0} : ${match.scores?.black ?? 0} · ${match.targetScore} puan · 👁 ${match.spectatorCount || 0} izleyici`;
+    details.append(heading, meta);
+    const watchButton = document.createElement('button');
+    watchButton.type = 'button';
+    watchButton.className = 'publicRoomJoinBtn watchMatchBtn';
+    watchButton.textContent = '👁 İzle';
+    watchButton.disabled = !socket.connected;
+    watchButton.addEventListener('click', () => watchRoom(match.roomCode));
+    card.append(details, watchButton);
+    liveMatchesListEl.appendChild(card);
+  }
+}
+function watchRoom(code = null) {
+  const roomCode = String(code || roomCodeInput.value || '').trim().toUpperCase();
+  if (!roomCode) return setLobbyMessage('İzlemek istediğin maçın oda kodunu yaz.');
+  if (!socket.connected) return setLobbyMessage('Sunucuya bağlanılamadı.');
+  state.watchPending = true;
+  setLobbyMessage('', false);
+  socket.emit('viewer:watch', { roomCode });
+}
+function applySpectatorMode() {
+  gameScreen.classList.toggle('spectatorMode', state.isSpectator);
+  spectatorBanner?.classList.toggle('hidden', !state.isSpectator);
+  if (leaveRoomBtn) leaveRoomBtn.textContent = state.isSpectator ? '↗ İzlemeyi Bırak' : '↗ Odadan Çık';
+  if (matchExitBtn) matchExitBtn.textContent = state.isSpectator ? 'İzlemeyi Bırak' : 'Odadan Çık';
+  rematchBtn?.classList.toggle('hidden', state.isSpectator);
+}
 function requestMyHistory() {
   if (!socket.connected) return;
   socket.emit('history:request', { playerToken: state.me.playerToken });
@@ -489,7 +663,7 @@ function createRoom() {
   if (!socket.connected) return setLobbyMessage('Sunucuya bağlantı kurulamadı. Biraz sonra tekrar dene.');
   setLobbyMessage('', false);
   const visibility = document.querySelector('input[name="roomVisibility"]:checked')?.value || 'private';
-  socket.emit('room:create', { name, targetScore: targetScoreSelect.value, visibility, playerToken: state.me.playerToken, autoDice: state.autoDice });
+  socket.emit('room:create', { name, targetScore: targetScoreSelect.value, visibility, allowSpectators: allowSpectatorsCheckbox?.checked === true, playerToken: state.me.playerToken, autoDice: state.autoDice });
 }
 
 function joinRoom(requestedCode = null) {
@@ -509,6 +683,8 @@ function joinRoom(requestedCode = null) {
 
 createRoomBtn.addEventListener('click', createRoom);
 joinRoomBtn.addEventListener('click', () => joinRoom());
+watchRoomBtn?.addEventListener('click', () => watchRoom());
+refreshLiveMatchesBtn?.addEventListener('click', () => socket.connected && socket.emit('rooms:request'));
 refreshHistoryBtn?.addEventListener('click', requestMyHistory);
 refreshPublicRoomsBtn?.addEventListener('click', () => {
   if (socket.connected) { socket.emit('rooms:request'); requestMyHistory(); }
@@ -566,6 +742,9 @@ function showLobby(message = '', error = false) {
   state.chatMessages = [];
   state.me.roomCode = null;
   state.me.color = null;
+  state.isSpectator = false;
+  state.watchPending = false;
+  applySpectatorMode();
   state.lastMatchSummaryId = null;
   state.lastRoundSummaryId = null;
   gameScreen.classList.add('hidden');
@@ -582,6 +761,12 @@ function showLobby(message = '', error = false) {
 
 function leaveRoom() {
   if (!state.me.roomCode || state.leaveRequested) return;
+  if (state.isSpectator) {
+    state.suppressReconnect = true;
+    if (socket.connected) socket.emit('viewer:leave');
+    showLobby('Maç izleme modundan ayrıldın.', false);
+    return;
+  }
   if (!socket.connected) return showToast('Odadan ayrılmak için önce sunucuya yeniden bağlanmalısın.', 'warning');
   if (!window.confirm('Odadan çıkarsan oyun ve oda iki oyuncu için de kapanacak. Çıkmak istiyor musun?')) return;
   state.leaveRequested = true;
@@ -603,7 +788,9 @@ function renderConnectionStatus() {
   joinRoomBtn.disabled = !connected;
   if (refreshPublicRoomsBtn) refreshPublicRoomsBtn.disabled = !connected;
   if (refreshHistoryBtn) refreshHistoryBtn.disabled = !connected;
+  if (refreshLiveMatchesBtn) refreshLiveMatchesBtn.disabled = !connected;
   renderPublicRooms();
+  renderLiveMatches();
 }
 
 applyUIText();
@@ -613,20 +800,27 @@ applyTheme(state.theme);
 applySkin(state.skin);
 updateAutoDiceControls();
 prefillLobbyFromPrefs();
+renderAccount();
+refreshAccount();
 
 socket.on('connect', () => {
   // Sunucu yeniden bağlandığında oyuncunun odasını geri iste.
   renderConnectionStatus();
   socket.emit('rooms:request');
   requestMyHistory();
-  if (state.me.playerToken && !state.suppressReconnect) {
+  if (state.isSpectator && state.me.roomCode && !state.suppressReconnect) {
+    state.watchPending = true;
+    socket.emit('viewer:watch', { roomCode: state.me.roomCode });
+  } else if (state.me.playerToken && !state.suppressReconnect) {
     socket.emit('player:reconnect', { playerToken: state.me.playerToken, autoDice: state.autoDice });
   }
 });
 socket.on('disconnect', () => {
   renderConnectionStatus();
   state.publicRooms = [];
+  state.liveMatches = [];
   renderPublicRooms();
+  renderLiveMatches();
   if (state.me.roomCode) statusText.textContent = 'Bağlantı kesildi. Yeniden bağlanılıyor...';
   rollDiceBtn.disabled = true;
   confirmBtn.disabled = true;
@@ -643,10 +837,41 @@ setInterval(() => {
   statusText.textContent = `Rakip koptu; maç durdu. Yeniden bağlanmak için ${remaining} dakika kaldı.`;
 }, 15000);
 
+socket.on('account:profile', ({ user, stats } = {}) => {
+  if (!user || state.account?.user?.id !== user.id) return;
+  state.account = { ...state.account, stats };
+  renderAccount();
+});
 socket.on('history:list', (items) => renderMatchHistory(Array.isArray(items) ? items : []));
 socket.on('rooms:list', (rooms) => {
   state.publicRooms = Array.isArray(rooms) ? rooms : [];
   renderPublicRooms();
+});
+socket.on('matches:list', (matches) => {
+  state.liveMatches = Array.isArray(matches) ? matches : [];
+  renderLiveMatches();
+});
+socket.on('viewer:count', ({ spectatorCount } = {}) => {
+  if (viewerCountBadge && state.room?.allowSpectators) {
+    viewerCountBadge.textContent = `👁 ${spectatorCount || 0} izleyici`;
+  }
+});
+socket.on('viewer:joined', ({ roomCode } = {}) => {
+  if (!roomCode) return;
+  state.isSpectator = true;
+  state.watchPending = false;
+  state.suppressReconnect = false;
+  state.me.roomCode = roomCode;
+  state.me.color = null;
+  state.lastMatchSummaryId = null;
+  state.lastRoundSummaryId = null;
+  roomCodeLabel.textContent = roomCode;
+  updateRoomLinkPreview();
+  applySpectatorMode();
+  lobbyScreen.classList.add('hidden');
+  gameScreen.classList.remove('hidden');
+  setLobbyMessage('', false);
+  updateBoardScale();
 });
 
 socket.on('player:reconnect-missing', () => {
@@ -669,6 +894,8 @@ socket.on('dice:rolling', ({ duration = 900 }) => {
 });
 
 socket.on('room:joined', ({ roomCode, color }) => {
+  state.isSpectator = false;
+  applySpectatorMode();
   if (state.me.roomCode !== roomCode) {
     state.lastMatchSummaryId = null;
     state.lastRoundSummaryId = null;
@@ -686,7 +913,15 @@ socket.on('room:joined', ({ roomCode, color }) => {
   socket.emit('settings:autoDice', { enabled: state.autoDice });
 });
 
-socket.on('room:error', (message) => setLobbyMessage(message, true));
+socket.on('room:error', (message) => {
+  if (state.isSpectator && state.watchPending) {
+    showLobby(message || 'Maça yeniden bağlanılamadı.', true);
+  } else {
+    state.watchPending = false;
+    if (state.isSpectator) showToast(message, 'warning');
+    else setLobbyMessage(message, true);
+  }
+});
 
 socket.on('chat:message', (message) => {
   state.chatMessages = [...(state.chatMessages || []), message];
@@ -714,6 +949,10 @@ socket.on('state:update', (roomState) => {
   if (!state.me.roomCode || roomState.roomCode !== state.me.roomCode) return;
   state.room = roomState;
   if (gameVisibilityBadge) gameVisibilityBadge.textContent = roomState.visibility === 'public' ? 'Herkese açık' : 'Özel oda';
+  if (viewerCountBadge) {
+    viewerCountBadge.classList.toggle('hidden', !roomState.allowSpectators);
+    viewerCountBadge.textContent = `👁 ${roomState.spectatorCount || 0} izleyici`;
+  }
   updateRoomLinkPreview();
   savePrefs();
   state.animating = !!roomState.game.animating;
@@ -747,7 +986,12 @@ socket.on('state:update', (roomState) => {
     ? t('wonMatch', { name: roomState.game.winner === 'white' ? (roomState.players.white?.name || t('white')) : (roomState.players.black?.name || t('black')) })
     : myTurn ? t('yourTurn') : t('enemyTurn');
 
-  if (!bothPlayersReady) {
+  if (state.isSpectator) {
+    statusText.textContent = '👁 Seyirci modu · Oyun canlı olarak güncelleniyor.';
+    turnBadge.textContent = roomState.game.winner
+      ? `Kazanan: ${roomState.players?.[roomState.game.winner]?.name || 'Oyuncu'}`
+      : `Sıra: ${roomState.players?.[roomState.game.turn]?.name || 'Oyuncu'}`;
+  } else if (!bothPlayersReady) {
     statusText.textContent = t('waitingRoom');
   } else if (enemyConnected === false) {
     const deadline = roomState.players[state.me.color === 'white' ? 'black' : 'white']?.reconnectUntil;
@@ -807,7 +1051,7 @@ socket.on('state:update', (roomState) => {
     }
   }
 
-  if (roomState.game.doubleOffer && roomState.game.doubleOffer.offeredBy !== state.me.color) showDoubleOffer(roomState.game.doubleOffer);
+  if (!state.isSpectator && roomState.game.doubleOffer && roomState.game.doubleOffer.offeredBy !== state.me.color) showDoubleOffer(roomState.game.doubleOffer);
   else closeDoubleModal();
 
   if (roomState.game.roundSummary) showRoundSummary(roomState.game.roundSummary);
