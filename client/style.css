@@ -982,3 +982,214 @@ body[data-theme="dark"] .doubleOfferBtn { background: linear-gradient(180deg, #5
 @media (max-width: 860px) and (orientation: landscape) {
   .mobileBoardTip { display: none; }
 }
+
+/* v12: Kullanıcıya özel maç geçmişi, mobilde rahat okunabilir kartlar. */
+.matchHistorySection { max-width:930px; margin:25px auto 0; background:white; border:1px solid #e3e9f3; border-radius:24px; padding:23px 26px; box-shadow:0 12px 32px rgba(36,63,103,.05); }
+.matchHistoryHeading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; }
+.matchHistoryHeading h2 { margin:5px 0; font-size:24px; }
+.matchHistoryHeading p { margin:0 0 12px; color:#718099; font-size:13px; }
+.matchHistoryList { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.matchHistoryItem { background:#f8fbff; border:1px solid #e4eaf5; border-radius:14px; padding:14px; display:flex; flex-direction:column; gap:6px; min-width:0; }
+.matchHistoryItem strong { color:#20354f; font-size:14px; overflow-wrap:anywhere; }
+.matchHistoryItem small { color:#7b899b; font-size:12px; }
+.matchHistoryItem span { color:#526681; font-size:13px; }
+.matchHistoryItem .historyResult { font-weight:750; color:#28644d; }
+.matchHistoryItem .historyResult.interrupted { color:#9a6743; }
+@media (max-width:640px) {
+ .matchHistorySection { margin-top:18px; padding:18px 15px; }
+ .matchHistoryHeading h2 { font-size:21px; }
+ .matchHistoryList { grid-template-columns:1fr; }
+}
+
+
+/* v13: Ekranın genişliğine göre kendini yerleştiren oyun alanı.
+   2K/4K'da gereksiz yere uzamak yerine merkezde okunabilir boyutta kalır. */
+:root { color-scheme: light; }
+html { min-width: 0; }
+#app:has(#gameScreen:not(.hidden)) {
+  width: 100%;
+  max-width: 1480px;
+  margin-inline: auto;
+}
+#gameScreen, #gameScreen > *, #gameScreen .controlsRow > * { min-width: 0; }
+#gameScreen .controlsRow { grid-template-columns: minmax(0, 1fr) minmax(0, 1.48fr) minmax(0, 1.16fr); }
+#gameScreen .chatPanel { margin-top: 0; }
+#gameScreen .scoreboard { grid-template-columns: minmax(0,1fr) auto minmax(0,1fr); }
+#gameScreen .playerName { overflow-wrap: anywhere; }
+#gameScreen .tableWrap { isolation: isolate; }
+#gameScreen .roomRow { flex-wrap: wrap; }
+#gameScreen .chatComposer { grid-template-columns: minmax(0,1fr) auto; }
+#gameScreen .chatComposer input { min-width: 0; }
+.mobileBoardTools { display: none; }
+
+@media (min-width: 1101px) and (max-width: 1320px) {
+  #gameScreen .controlsRow { grid-template-columns: minmax(0,1fr) minmax(0,1.3fr); }
+  #gameScreen .chatPanel { grid-column: 1 / -1; }
+}
+@media (min-width: 1800px) {
+  #app:has(#gameScreen:not(.hidden)) { max-width: 1540px; }
+  #gameScreen .board { min-height: 790px; }
+  #gameScreen .point { min-height: 365px; }
+  #gameScreen .playerName { font-size: clamp(25px,1.3vw,30px); }
+}
+
+/* Tahta taşları, noktalar ve toplama bölmeleri tamamen akışkan.
+   Görünür taşlar için görsel ölçü küçük ekranlarda makul kalır. */
+@media (max-width: 860px) {
+  #app:has(#gameScreen:not(.hidden)) { max-width: none; padding: 0; margin: 0; }
+  #gameScreen { padding: clamp(6px,1.8vw,14px); width:100%; }
+  #gameScreen .topbar, #gameScreen .scoreboard,
+  #gameScreen .dicePanel, #gameScreen .confirmPanel,
+  #gameScreen .chatPanel, #gameScreen .customizationBar { border-radius: clamp(12px,2vw,20px); }
+  #gameScreen .topbar { display:grid; grid-template-columns:minmax(0, 1fr) auto; align-items:start; gap:10px; padding:12px; }
+  #gameScreen .topbar > div:first-child { min-width:0; }
+  #gameScreen .statusActions { width:auto; display:flex; flex-direction:column; align-items:flex-end; gap:6px; }
+  #gameScreen .statusBlock { max-width:260px; text-align:right; }
+  #gameScreen .turnBadge { padding:6px 10px; font-size:12px; margin-bottom:4px; }
+  #gameScreen .leaveRoomBtn { font-size:12px; padding:8px 10px; }
+  #gameScreen .scoreboard { grid-template-columns:minmax(0,1fr) minmax(0,1fr); grid-template-areas:'white black' 'middle middle'; gap:5px 10px; padding:8px 12px; }
+  #gameScreen #whiteCard { grid-area:white; }
+  #gameScreen #blackCard { grid-area:black; }
+  #gameScreen .scoreMiddle { grid-area:middle; display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); gap:8px; width:100%; justify-content:stretch; }
+  #gameScreen .playerCard { padding:6px 2px; gap:7px; }
+  #gameScreen .avatar { width:clamp(24px,5vw,42px); height:clamp(24px,5vw,42px); flex:0 0 auto; }
+  #gameScreen .playerName { font-size:clamp(12px,2.1vw,17px); line-height:1.25; }
+  #gameScreen .scoreBox { min-width:0; width:100%; font-size:clamp(19px,3.8vw,32px); padding:7px 6px; }
+  #gameScreen .targetLabel { max-width:96px; font-size:clamp(10px,1.7vw,15px); }
+
+  #gameScreen .mobileBoardTools { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:0 0 6px; }
+  #gameScreen .mobileBoardTip { display:block; text-align:left; margin:0; flex:1; font-size:clamp(10px,1.4vw,12px); }
+  #gameScreen .boardZoomBtn { display:inline-flex; align-items:center; justify-content:center; flex:none; margin:0; min-height:34px; padding:7px 10px; background:#e4ecfa; color:#234f9a; font-size:12px; border-radius:10px; }
+  #gameScreen .boardZoomBtn[aria-pressed='true'] { background:#2e6de7; color:#fff; }
+
+  #gameScreen .tableWrap {
+    display:block; width:100%; height:auto !important; padding:clamp(5px,1vw,12px);
+    overflow-x:auto; overflow-y:hidden; overscroll-behavior-inline:contain;
+    scrollbar-width:thin; scrollbar-color:#94a9cb transparent;
+    -webkit-overflow-scrolling:touch; box-shadow:0 10px 24px rgba(27,39,66,.10);
+  }
+  #gameScreen .board {
+    --mobile-tray:clamp(24px,7vw,64px);
+    --mobile-piece:clamp(14px,4.5vw,40px);
+    display:grid; width:calc(100% - var(--mobile-tray) - 2px);
+    min-width:0; min-height:0; height:auto; margin:0;
+    grid-template-columns:minmax(0,1fr) clamp(18px,7vw,62px) minmax(0,1fr);
+    gap:0; padding:clamp(4px,1.2vw,13px); border-width:clamp(3px,0.8vw,6px);
+    border-radius:clamp(10px,1.8vw,21px); overflow:visible;
+    transform:none !important;
+  }
+  #gameScreen .halfColumn { display:grid; min-width:0; grid-template-rows:1fr 1fr; gap:clamp(6px,1.5vw,14px); }
+  #gameScreen .half { display:grid; min-width:0; grid-template-columns:repeat(6,minmax(0,1fr)); gap:clamp(1px,.35vw,6px); }
+  #gameScreen .point { min-width:0; width:100%; min-height:clamp(110px,29vw,286px); overflow:visible; }
+  #gameScreen .point::before {
+    position:absolute; left:0; transform:none; width:100%; height:calc(100% - 6px);
+    border:0; background:var(--triangle-light);
+    clip-path:polygon(50% 0%,0% 100%,100% 100%);
+  }
+  #gameScreen .point.alt::before { background:var(--triangle-dark); }
+  #gameScreen .point.top::before { top:0; bottom:auto; border:0; }
+  #gameScreen .point.bottom::before { top:auto; bottom:0; border:0; clip-path:polygon(0 0,100% 0,50% 100%); }
+  #gameScreen .pointLabel { font-size:clamp(8px,1vw,11px); }
+  #gameScreen .point.top .pointLabel { top:3px; }
+  #gameScreen .point.bottom .pointLabel { bottom:3px; }
+  #gameScreen .stack { width:100%; min-width:0; gap:clamp(1px,.3vw,3px); padding:clamp(5px,1vw,10px) 0; }
+  #gameScreen .board .checker {
+    width:min(100%,var(--mobile-piece)); height:auto; aspect-ratio:1 / 1;
+    min-width:0; flex-shrink:0; box-shadow:0 3px 6px rgba(0,0,0,.17);
+  }
+  #gameScreen .point.selected .checker:last-child,
+  #gameScreen .checker.selectedSelf { outline:2px solid #fff; box-shadow:0 0 0 3px rgba(54,124,255,.55); }
+  #gameScreen .point.top .stackCountBadge { top:45%; }
+  #gameScreen .point.bottom .stackCountBadge { bottom:45%; }
+  #gameScreen .point.top.possible::after, #gameScreen .point.top.blocked::after { top:44%; }
+  #gameScreen .point.bottom.possible::after, #gameScreen .point.bottom.blocked::after { bottom:44%; }
+  #gameScreen .point.possible::after, #gameScreen .point.blocked::after { width:clamp(10px,2.7vw,23px); height:clamp(10px,2.7vw,23px); border-width:2px; }
+  #gameScreen .stackCountBadge { min-width:clamp(14px,2.6vw,23px); height:clamp(14px,2.6vw,23px); padding:0 2px; font-size:clamp(10px,1.5vw,13px); }
+  #gameScreen .middleBar { min-width:0; }
+  #gameScreen .middleBar::before { width:clamp(3px,.8vw,8px); }
+  #gameScreen .barZone { width:90%; min-height:clamp(48px,13vw,110px); border-radius:12px; }
+  #gameScreen .barZone.top { top:15%; }
+  #gameScreen .barZone.bottom { bottom:15%; }
+  #gameScreen .barBadge { min-width:17px; height:17px; font-size:10px; }
+  #gameScreen .offTray { width:var(--mobile-tray); min-height:clamp(60px,17vw,150px); border-radius:12px; }
+  #gameScreen .offTray.top-right { right:calc(-1 * var(--mobile-tray) - 2px); top:3px; }
+  #gameScreen .offTray.bottom-right { right:calc(-1 * var(--mobile-tray) - 2px); bottom:3px; }
+  #gameScreen .offTray .offChecker { max-width:var(--mobile-piece); }
+  #gameScreen .offCountBadge { min-width:17px; height:17px; padding:0 4px; font-size:10px; }
+
+  #gameScreen .tableWrap.boardZoomed .board { min-width: min(780px, 125vw); }
+  #gameScreen .tableWrap.boardZoomed .point { min-height:250px; }
+  #gameScreen .tableWrap.boardZoomed .board { --mobile-piece:32px; --mobile-tray:55px; grid-template-columns:minmax(0,1fr) 58px minmax(0,1fr); }
+  #gameScreen .controlsRow { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.25fr); gap:10px; }
+  #gameScreen .controlsRow > * { min-width:0; }
+  #gameScreen .dicePanel { grid-column:1; order:1; padding:12px; }
+  #gameScreen .confirmPanel { grid-column:2; order:2; padding:12px; }
+  #gameScreen .chatPanel { grid-column:1 / -1; order:3; padding:12px; }
+  #gameScreen .customizationBar { grid-template-columns:minmax(0,1fr); }
+  #gameScreen .dicePanelHeader { flex-wrap:wrap; }
+  #gameScreen .doublePanel { flex-direction:column; align-items:stretch; }
+  #gameScreen .doublePanel .doubleOfferBtn { width:100%; min-width:0; }
+  #gameScreen .confirmButtons { grid-template-columns:minmax(0,1fr); }
+  #gameScreen .confirmButtons button { width:100%; min-height:44px; padding:8px 6px; font-size:14px; }
+  #gameScreen .diceArea { justify-content:center; min-height:50px; }
+}
+
+@media (max-width: 620px) {
+  #gameScreen .controlsRow { grid-template-columns:minmax(0,1fr); }
+  #gameScreen .dicePanel, #gameScreen .confirmPanel, #gameScreen .chatPanel { grid-column:1; }
+  #gameScreen .dicePanelHeader { flex-direction:row; align-items:center; }
+  #gameScreen .diceArea { justify-content:flex-start; }
+  #gameScreen .confirmButtons { grid-template-columns:minmax(0,1fr) minmax(0,1.25fr); }
+  #gameScreen .doublePanel { flex-direction:row; align-items:center; }
+  #gameScreen .doublePanel .doubleOfferBtn { width:auto; min-width:100px; }
+  #gameScreen .chatMessages { max-height:170px; }
+}
+@media (max-width: 360px) {
+  #gameScreen .topbar { display:flex; flex-direction:column; }
+  #gameScreen .statusActions { flex-direction:row; width:100%; justify-content:space-between; align-items:center; }
+  #gameScreen .statusBlock { text-align:left; max-width:70%; }
+  #gameScreen .board { --mobile-piece:15px; }
+  #gameScreen .playerName { font-size:12px; }
+  #gameScreen .scoreBox { padding:5px; }
+  #gameScreen .doublePanel { flex-direction:column; align-items:stretch; }
+  #gameScreen .doublePanel .doubleOfferBtn { width:100%; }
+  #gameScreen .chatComposer { grid-template-columns:minmax(0,1fr) auto; gap:5px; }
+  #gameScreen .chatComposer button { padding:8px; }
+}
+@media (max-width: 299px) {
+  #app:has(.lobbyPage:not(.hidden)) { padding-inline:4px; }
+  .lobbyPage { padding-inline:0; }
+  .lobbyNavigation { flex-wrap:wrap; }
+  .logoRow { gap:5px; }
+  .lobbyLogo { font-size:17px; }
+  .creatorLinks { padding-left:0; }
+  .lobbyHero h1 { font-size:24px; letter-spacing:-.5px; }
+  .heroChips { gap:5px; }
+  .heroChips span { font-size:10px; padding:5px; }
+  .lobbyPanel { padding:10px; }
+  .lobbyPanel .lobbyCTA { min-height:40px; }
+  .roomVisibilityChoices { grid-template-columns:minmax(0,1fr); }
+  .publicRoomsHeader { flex-wrap:wrap; }
+  .lobbyHow { grid-template-columns:1fr; }
+  .lobbyHow > div { flex-direction:row; text-align:left; }
+  #gameScreen { padding:4px; }
+  #gameScreen .topbar, #gameScreen .scoreboard, #gameScreen .dicePanel,
+  #gameScreen .confirmPanel, #gameScreen .chatPanel { padding:7px; }
+  #gameScreen .board { min-width:340px; --mobile-piece:16px; --mobile-tray:30px; grid-template-columns:minmax(0,1fr) 24px minmax(0,1fr); }
+  #gameScreen .board .checker { width:min(100%,var(--mobile-piece)); }
+  #gameScreen .scoreboard { grid-template-columns:1fr; grid-template-areas:'white' 'middle' 'black'; }
+  #gameScreen .scoreMiddle { gap:3px; }
+  #gameScreen .statusActions { flex-wrap:wrap; }
+  #gameScreen .mobileBoardTools { flex-wrap:wrap; }
+  #gameScreen .confirmButtons { grid-template-columns:1fr; }
+  #gameScreen .chatComposer { grid-template-columns:minmax(0,1fr); }
+  #gameScreen .roundModalCard { max-height:calc(100dvh - 10px); overflow:auto; padding:8px; }
+}
+@media (max-height: 360px) and (orientation: landscape) {
+  #gameScreen .topbar { padding-block:6px; }
+  #gameScreen .mobileBoardTools { margin-bottom:4px; }
+  #gameScreen .board .point { min-height:clamp(100px,15vh,150px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #gameScreen .board *, #gameScreen button { animation-duration:.01ms !important; transition-duration:.01ms !important; }
+}

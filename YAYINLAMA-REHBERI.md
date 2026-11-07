@@ -1,53 +1,60 @@
-# Tavla Online v11 — GitHub ve Render yayınlama rehberi
+# Tavla Online v13 — GitHub + Render Dağıtımı ve Kalıcı Kayıt
 
-## GitHub'a yükleme veya mevcut siteyi güncelleme
+## GitHub'a güncelleme
 
-1. İndirdiğin ZIP dosyasını aç.
-2. GitHub'daki ilgili depoyu aç; örneğin `Backgammon-site`.
-3. **ZIP'in içindekileri** depodaki karşılık gelen dosyaların üzerine yükle: `client/`, `server/`, `tests/`, `package.json`, `package-lock.json`, `render.yaml`, `README.md` ve bu rehber.
-4. Değişiklikleri `Commit changes` ile kaydet.
-5. Dosyalar deponun **kök dizininde** bulunmalı; yanlışlıkla tüm dosyaları ek bir klasör içine koyma.
-6. `node_modules/` klasörünü GitHub'a yükleme.
+1. ZIP'i bilgisayarına indirip aç.
+2. GitHub'daki `Backgammon-site` deponun **köküne** `client/`, `server/`, `tests/`, `package.json`, `package-lock.json`, `render.yaml`, `README.md` ve bu rehberi yükle / mevcut dosyaların üzerine yaz.
+3. Yeni `server/storage.js` ve `tests/storage.test.js` dosyalarının da depoya eklendiğini kontrol et.
+4. GitHub'da **Commit changes** işlemini yap. Render otomatik dağıtım açıksa değişiklikler yayınlanır; değilse **Manual Deploy > Deploy latest commit**.
+5. `node_modules/`, `data/`, `matches.json`, oyuncu tokenları, `.env` dosyaları ve gerçek kayıtları GitHub'a yükleme.
 
-> Mevcut Render sitesi bu GitHub deposuna bağlıysa commit'ten sonra otomatik dağıtım tetiklenebilir. Otomatik dağıtım kapalıysa Render'da **Manual Deploy > Deploy latest commit** kullan.
+## Web servisi ayarları
 
-## Render'da ilk kurulum
+- **Runtime:** Node
+- **Build:** `npm ci`
+- **Start:** `npm start`
+- **Health:** `/health`
+- **Port:** Render'ın sağladığı `PORT` (kod otomatik okur)
+- **Instance:** Tek örnek / tek Node süreci
 
-1. <https://dashboard.render.com/> sayfasında **New > Web Service** seç.
-2. GitHub deposunu bağla ve doğru dalı (`main` vb.) seç.
-3. Yapılandırma:
+## Render'da maç kayıtlarını gerçekten kalıcı tutmak
 
-   | Ayar | Değer |
-   | --- | --- |
-   | Runtime | Node |
-   | Build Command | `npm ci` |
-   | Start Command | `npm start` |
-   | Root Directory | Boş (depo kökü) |
-   | Health Check Path | `/health` |
-   | Plan | Hesabına uygun plan; ücretsiz seçenek varsa kullanılabilir |
+### Seçenek A — Tek sunucu için Persistent Disk (bu sürümde kod desteği var)
 
-4. Yayın tamamlandığında Render'ın verdiği `https://...onrender.com` alan adını aç.
-5. Bir cihazdan oda aç, başka cihazdan davet bağlantısıyla katıl.
+1. Render hesabında **persistent disk destekleyen** bir servis planına geç; ücretsiz web servisinde bu özellik kullanılamayabilir / bulunmaz.
+2. Web Service → **Disks** bölümünden örneğin `/var/data` konumuna disk bağla.
+3. Web Service → **Environment** bölümüne `TAVLA_DATA_FILE` değeri olarak `/var/data/matches.json` ekle.
+4. Yeni dağıtımdan sonra bir oyun başlat ve sunucuyu yeniden başlatıp aynı sekmelerle maça geri dönmeyi dene.
+5. Disk veri içereceğinden erişim ve yedekleme politikası uygula. Tek bir yerel JSON dosyası, yüksek eşzamanlı kullanım için veritabanının yerini tutmaz.
 
-## Yayın öncesi kontrol listesi
+### Seçenek B — Render ücretsiz servis (geçici kayıt)
 
-- [ ] Ana sayfa telefonda ve bilgisayarda açılıyor.
-- [ ] Özel oda açılınca herkese açık odalar listesinde görünmüyor; kodla katılım çalışıyor.
-- [ ] Herkese açık oda oluşturulduğunda listede oyuncu adı ve puan hedefi görünüyor.
-- [ ] Herkese açık oda ikinci oyuncu girince listeden anında kalkıyor.
-- [ ] Mobil ekranda tahta, taş toplama alanı ve kontrol panelleri taşmıyor.
-- [ ] Oda aç / davet koduyla katıl çalışıyor.
-- [ ] Bir oyuncunun attığı zar diğer oyuncuda aynı görünüyor.
-- [ ] Hamleleri iki oyuncu da aynı şekilde görüyor.
-- [ ] Mars, 2x kabul ve 2x ret skoru doğru işliyor.
-- [ ] Kazanan sonraki eli başlatıyor.
-- [ ] Odadan Çık iki oyuncuyu ana sayfaya döndürüyor.
-- [ ] Rövanş için iki oyuncunun da onayı gerekiyor.
-- [ ] Telefonun Wi-Fi bağlantısı kesilip açıldığında aynı sekmede yeniden bağlanma deneniyor.
+Hiçbir ayar yapmazsan `data/matches.json` dosyasına kayıt yapılır ama **Render yeniden dağıtıldığında veya yeniden oluşturulduğunda veri silinebilir**. Ücretsiz planda gerçek kalıcılık **yoktur**. İleride PostgreSQL gibi bir dış veritabanına geçilebilir fakat **bu ZIP bunu henüz desteklemez**.
+
+## Yayın sonrası manuel kontrol
+
+- [ ] İki ayrı tarayıcıdan özel oda aç/katıl, geçerli hamle yap.
+- [ ] Herkese açık oda beklerken listede; ikinci kişi girince listede değil.
+- [ ] Maç sırasında bir oyuncuda interneti kes, diğer oyuncu “duraklatıldı” durumunu görsün.
+- [ ] Aynı sekme tekrar bağlandığında tahtanın, zarların ve sıranın korunduğunu doğrula.
+- [ ] Uzun süre dönmeyen oyuncuda 15 dakika sonra odanın kapandığını ve maçın yarıda kaldı olarak kaydedildiğini doğrula.
+- [ ] Maç bitince ana sayfadaki “Son maçlarım” bölümünü kontrol et.
+- [ ] Kalıcı disk bağladıysan sunucuyu yeniden başlat, devam eden odanın yüklendiğini doğrula.
+- [ ] Farklı oyuncu anahtarıyla başka kişinin maç geçmişi görünmesin.
+- [ ] Telefon görünümü, zar/2x/hamle sırası ve odadan çıkış kontrolü.
 
 ## Önemli sınırlar
 
-- Render veya başka ücretsiz sağlayıcı uygulamayı boşta kaldığında uykuya alabilir; gecikme, yeniden başlatma ve kullanım kısıtları sağlayıcı planına göre değişir. Güncel şartlar için [Render belgelerini](https://render.com/docs/free) kontrol et.
-- Maç bilgileri RAM'de kalır. Sunucu yeniden başlarsa oda ve skor sıfırlanır.
-- Sunucu tek süreç/tek örnek üzerinde çalışacak şekilde tasarlanmıştır. Birden çok sunucu kopyası kullanılıyorsa paylaşımlı oda veri deposu ve Socket.IO adapter eklenmelidir.
-- Herkese açık bir site için canlı cihaz testleri, hata kayıtları, moderasyon ve kötüye kullanım korumaları ayrıca değerlendirilmelidir.
+- Oyuncu oturumu ve arşiv erişimi sekmeye özgü gizli anahtara bağlıdır; üyelik/hesap sistemi yoktur.
+- Bir oyuncunun sekmesi tamamen kapatılırsa otomatik hesap kurtarma garanti edilmez.
+- Sistem tek sunuculu ve dosya tabanlıdır. Çoklu Node örnekleri ya da yatay ölçekleme için ortak veritabanı ve Socket.IO adapter gereklidir.
+- Otomatik testler üretim ağında iki gerçek cihazla yapılan uçtan uca testlerin yerine geçmez.
+
+## v13 mobil ve ekran çözünürlüğü kontrolü
+
+- [ ] 320×568, 375×812, 390×844, 430×932 çözünürlüklerinde oyun ekranında tahta, zarlar ve işlem butonları birbirini örtmesin.
+- [ ] Telefonu yatay çevir; yatay sayfa taşması olmasın.
+- [ ] **Tahtayı büyüt** düğmesine bas; yalnızca tahta alanı yatay kaydırılsın. **Ekrana sığdır** ile geri dön.
+- [ ] 180 CSS pikseli gibi çok dar ekranda tahta kaydırılabilir olsun ve tüm sayfa yatay taşmasın.
+- [ ] 1280, 1920, 2560 ve 3840 genişliklerinde masaüstü arayüz merkezde kalsın.
+- [ ] İki gerçek cihazda aynı maçta dokunarak taş seçme ve taşıma işlemini dene (tarayıcı simülasyonu bu testi tamamıyla karşılamaz).

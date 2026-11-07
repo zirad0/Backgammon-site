@@ -90,6 +90,19 @@
           <div class="emptyPublicRooms">Açık oda aranıyor...</div>
         </div>
       </section>
+      <section class="matchHistorySection" aria-labelledby="matchHistoryTitle">
+        <div class="matchHistoryHeading">
+          <div>
+            <span class="publicRoomsEyebrow">KAYITLI MAÇLAR</span>
+            <h2 id="matchHistoryTitle">Son maçlarım</h2>
+            <p>Bu tarayıcı oturumundaki oyuncu anahtarına bağlı maç sonuçların.</p>
+          </div>
+          <button id="refreshHistoryBtn" type="button" class="refreshRoomsBtn">↻ Yenile</button>
+        </div>
+        <div id="matchHistoryList" class="matchHistoryList" aria-live="polite">
+          <p class="emptyPublicRooms">Henüz kayıtlı maç yok.</p>
+        </div>
+      </section>
       <div class="lobbyHow">
         <div><span class="howIndex">01</span><strong>Oda aç</strong><small>İsmini ve hedef puanı seç.</small></div>
         <div><span class="howIndex">02</span><strong>Daveti paylaş</strong><small>Oda kodunu veya bağlantıyı gönder.</small></div>
@@ -138,7 +151,10 @@
         </div>
       </div>
 
-      <p class="mobileBoardTip">Tahtayı daha büyük görmek için telefonunu yatay çevirebilirsin.</p>
+      <div class="mobileBoardTools">
+        <p class="mobileBoardTip" id="mobileBoardTip">Tahta ekrana sığar. Taşlar küçük görünüyorsa büyütebilirsin.</p>
+        <button id="boardZoomBtn" class="boardZoomBtn" type="button" aria-pressed="false" aria-controls="tableWrap">⌕ Tahtayı büyüt</button>
+      </div>
       <div id="tableWrap" class="tableWrap card">
         <div id="board" class="board"></div>
       </div>

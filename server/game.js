@@ -296,8 +296,10 @@ function legalMoveOptions(state, player, dice) {
 }
 
 function rollDice() {
-  const a = 1 + Math.floor(Math.random() * 6);
-  const b = 1 + Math.floor(Math.random() * 6);
+  // Zar sonucu sadece sunucuda, kriptografik güvenli rastgele sayı ile üretilir.
+  const { randomInt } = require('node:crypto');
+  const a = randomInt(1, 7);
+  const b = randomInt(1, 7);
   return a === b ? { pair: [a, b], dice: [a, a, a, a] } : { pair: [a, b], dice: [a, b] };
 }
 

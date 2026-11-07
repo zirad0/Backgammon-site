@@ -1,30 +1,27 @@
-# Tavla Online — v11 | Mobil ve Açık Oda Güncellemesi
+# Tavla Online v13 — Akışkan Mobil Arayüz, Bağlantı Kurtarma ve Maç Kayıtları
 
-İki kişinin oda kodu veya davet bağlantısı ile internet üzerinden tavla oynamasını sağlayan Node.js / Express / Socket.IO projesi. **Hamachi, üyelik ve veritabanı gerekmez.**
+Arkadaşlarınla gerçek zamanlı tavla oynayabileceğin Node.js + Express + Socket.IO projesi. Eski v11'in mobil arayüzü, özel/herkese açık oda listesi, 2x teklifleri, sohbet, maç ve rövanş kuralları korunur.
 
-## v11 ile gelenler
+## v13: responsive arayüz güncellemesi
 
-- Oda açarken **Özel** (varsayılan, yalnızca kodla girilir) veya **Herkese Açık** seçilir.
-- Ana sayfada **Herkese Açık Odalar** alanı vardır: bekleyen odaların kodu, kurucunun oyuncu adı, hedef puanı ve 1/2 oyuncu durumu görünür. **Katıl** düğmesiyle doğrudan girilebilir.
-- Liste gerçek zamanlı güncellenir. **Bir oyuncu ikinci kişi olarak katılıp maç başladığında oda listeden anında kalkar ve rövanşta tekrar görünmez.**
-- Bağlantısı kopmuş ev sahibinin bekleyen odası geçici olarak gizlenir; yeniden bağlanınca geri gelir. Kapatılan oda listeden silinir.
-- **Mobil oyun ekranı:** gerçek tahta boyutuna göre ölçekleme, ekran dışına taşmayan taş toplama alanı, daha okunabilir oyuncu kartları ve telefonda alt alta yerleşen zar/hamle/2x panelleri.
-- v10'daki **Made By Zirad.**, Buy Me a Coffee ve Discord bağlantıları korunur.
+- **Tahta yeniden tasarlandı:** 300–860 CSS pikseli arasında taş, üçgen, bar, taş toplama alanı ve oyuncu panelleri gerçek ekran genişliğine uyum sağlar. Artık `transform: scale()` ile tüm tahtanın ve dokunma alanlarının minyatürleştirilmesi kullanılmaz.
+- **Mobil büyütme modu:** Oyun ekranındaki **Tahtayı büyüt / Ekrana sığdır** düğmesi isteğe bağlı büyük görünüm açar. Büyük tahtada sadece tahta bölümü yatay kaydırılır; tüm sayfa yatay taşmaz.
+- **Çok dar ekranlar:** 300 CSS pikselinin altındaki ekranlarda (180px genişlik dahil) taşların görünür ve seçilebilir kalması için yatay kaydırılabilir tahta kullanılır. Bu ekranlarda 24 noktayı aynı anda okunaklı göstermek fiziksel olarak mümkün değildir.
+- **Tablet ve masaüstü:** Kontrol panelleri genişliğe göre tek/iki/üç sütuna geçer. 2K ve 4K monitörlerde ana alan merkezde ve okunabilir bir maksimum genişlikte kalır; devasa boyutlara gerilmez.
+- **Oyun animasyonu:** Hareket eden taşın boyutu sabit 56px varsayımı yerine mevcut taşın görsel boyutuna uyarlanır.
+- **Ana sayfa düzeltmesi:** İki kez gösterilen "Son maçlarım" alanı tekilleştirildi.
 
-## Önceki sürümlerden devam eden düzeltmeler
+**Ekran çözünürlüğü notu:** CSS pikseli, fiziksel ekran pikseliyle her zaman aynı değildir; tarayıcı yakınlaştırması ve cihaz ölçeği dikkate alınır. Arayüzün temel kuralı ekranın **kullanılabilir CSS genişliğidir**. Telefonlarda yatay konum büyük tahta için daha rahattır.
 
-- Ana sayfa baştan düzenlendi: oda oluşturma, katılma ve kısa kullanım adımları; telefon/masaüstü uyumlu.
-- Her elden sonra **kazanan oyuncu sıradaki ele başlar**. Rövanşta da önceki maçın kazananı başlar.
-- 2x teklifinin zar animasyonu / otomatik zar ile çakışması giderildi. Teklif beklerken hamle ve zar ilerlemez.
-- 2x teklifinde kabul, ret, bağlantı kopması ve teklifin bir kez kullanılması denetlendi.
-- Türk tavlasında **mars 2 puandır**. 2x kabul edilirse normal galibiyet 2, mars 4 puan; ret halinde teklif sahibine 2 puan yazılır. Bu, bu uygulamanın **özel 2x kuralıdır** (standart tavla küpüyle birebir aynı değildir).
-- Oyun içinde ve açılır teklif/maç pencerelerinde **Odadan Çık** eklendi. Bir kişi ayrılırsa oda iki oyuncu için kapanır.
-- Rövanş için **iki oyuncunun da onayı** gerekir; tek kişi maçı sıfırlayamaz.
-- Sekme bazlı oyuncu oturumu, yeniden bağlanma, eski oturumu devre dışı bırakma ve bağlantı kesilme durumları iyileştirildi.
-- Oda oluşturma/katılma ve sohbet için hafif hız sınırları, temel HTTP güvenlik başlıkları ve mobil yatay taşma düzeltmeleri eklendi.
-- Sunucu oyun kuralları ve oda olaylarını denetleyen otomatik testler eklendi.
+## v12 yenilikleri
 
-## Bilgisayarda çalıştırma
+- **Kopma/yeniden bağlanma:** Oyuncunun bağlantısı kesilirse oyun otomatik duraklar. En fazla **15 dakika** içinde aynı oyuncu oturumuyla dönünce skorlar, tahta, zarlar ve sıra kaldığı yerden devam eder. Açıkta kalan taş animasyonu kesilirse hiç gerçekleşmemiş sayılır ve oyuncu hamleyi tekrar yapar. Bekleyen 2x teklifi güvenli biçimde iptal edilir.
+- **Geri dönülmeyen odalar:** 15 dakikada dönemeyen oyuncunun odası kapatılır; sonuç “yarıda kaldı” olarak arşivlenir. Bu, haksız yere galibiyet/puan yazmaz.
+- **Hile koruması:** Zarları yalnızca sunucu, `crypto.randomInt` ile üretir. Hamle, taş toplama, zar kullanım sırası, oyuncunun sırası, skor ve 2x koşulları sunucuda doğrulanır. İstemcinin sahte zar/hamle/skor göndermesi bir sonuç doğurmaz. Hatalı websocket veri tipleri, sık istekler ve eski oturumun oda kapatması engellenir.
+- **Kalıcı dosya kayıtları:** Aktif oda, oyuncu kimlikleri, taş/zar durumları, puanlar ve sohbet atomik JSON dosyasına kaydedilir. Sunucu yeniden başlarken bu kayıt yüklenir. Bitmiş ve yarıda kalmış maçların son **1.000** sonucu arşivlenir.
+- **Son maçlarım:** Ana menüde oyuncuya özel son 15 maç görüntülenir. Kayıtlara erişim tahmini zor, sekmeye özel oyuncu anahtarı ile yapılır. Hesap ve şifre sistemi yoktur.
+
+## Kurulum
 
 Node.js 20 veya üzeri:
 
@@ -33,37 +30,36 @@ npm ci
 npm start
 ```
 
-Tarayıcıda `http://localhost:3000` adresini açın.
+Tarayıcı: `http://localhost:3000`.
 
-Testleri çalıştırmak için:
+Testler (bağımlılıksız Node test çalıştırıcısı):
 
 ```bash
 npm test
 ```
 
-Bu sürümde 17 senaryolu otomatik test paketi bulunur. Mobil arayüz ve oda listesi tarayıcıda simüle edilmiş soket olaylarıyla kontrol edilmiştir. **İki gerçek cihaz arasında canlı internet testi ve üretim yük testi ayrıca yapılmalıdır.**
+28 otomatik test: temel tavla/2x/rövanş/oda, bağlantı kopması, animasyon durdurma, 15 dakika, kayıtların geri yüklenmesi, arşiv, yetkisiz hamle, oturum devralma ve gerçek dosya okuma-yazma kontrolü.
 
-## İnternette yayınlama
+## Kayıt dosyası ve Render konusu (ÖNEMLİ)
 
-Ayrıntılı adımlar: [YAYINLAMA-REHBERI.md](YAYINLAMA-REHBERI.md).
+Varsayılan kayıt yeri: `data/matches.json`. Bu klasör `.gitignore` içinde tutulur. Kayıt dosyası **özel oyuncu anahtarları içerir**; GitHub'a veya `client/` klasörüne yükleme.
 
-- ZIP'i açıp içindeki dosyaları GitHub deposunun köküne yükle; ZIP dosyasını tek başına yükleme.
-- Render Web Service için `npm ci` ve `npm start` kullan.
-- `render.yaml` uygulama ayarlarını içerir, `/health` sağlık kontrolü vardır.
-- Ortamın verdiği `PORT` kullanılır; erişim adresi barındırma sağlayıcısının HTTPS alan adıdır.
+Farklı bir konum için `TAVLA_DATA_FILE` ortam değişkeni kullan:
 
-## Oyun nasıl çalışır?
+```bash
+TAVLA_DATA_FILE=/var/data/matches.json npm start
+```
 
-1. Oyunculardan biri adını, hedef puanını ve özel/herkese açık seçimini yapıp oda açar.
-2. Diğeri kod, davet bağlantısı veya herkese açık oda listesindeki **Katıl** düğmesi ile girer.
-3. Sırası gelen oyuncu zar atar (otomatik ya da manuel); hamle yapıp turu onaylar.
-4. Taşlar tamamen ayrıldığında, sıradaki oyuncu zar atmadan önce bir kez 2x teklif edebilir. Otomatik zar bunu seçebilmek için kısa bir süre bekler.
-5. Kazanan yeni ele başlar. Maç bitince iki oyuncu da isterse rövanş oynanır.
-6. Odadan çıkış iki kişi için odayı kapatır. Geçici internet kesintisinde oyuncular aynı sekmeden yeniden bağlanabilir.
+**Render ücretsiz web servisinin dosya sistemi kalıcı değildir.** Dolayısıyla bu projeyi Render ücretsiz planda çalıştırırsan *sunucu çalıştığı sürece ve geçici dosyalar silinmediği sürece* kayıtlar durur; yeniden dağıtım/yeniden oluşturma durumlarında kayıtların korunması **garanti değildir**. Gerçekten kalıcı üretim verisi için Render Persistent Disk sunan uygun bir ücretli plan ve disk bağlama **veya** paylaşımlı kalıcı veritabanına geçiş gereklidir. Bu sürümde **veritabanı entegrasyonu yoktur**. Disk yapılandırma adımları: [YAYINLAMA-REHBERI.md](YAYINLAMA-REHBERI.md).
 
-## Sınırlar
+Bu yöntem **tek sunucu süreci / tek örnek** içindir. Çoklu instance, çok yüksek trafik veya herkese açık rekabetçi turnuvalar için DB, dağıtık oturum yönetimi, ayrıntılı denetim ve yük testi eklenmelidir.
 
-- **Oda, skor, sohbet ve maç verisi yalnızca sunucu RAM'inde tutulur.** Barındırıcı yeniden başlatılırsa veya ücretsiz barındırma uykuya girip uygulama yeniden başlarsa odalar kaybolabilir. Kalıcı kayıt, veri tabanı ve hesap sistemi yoktur.
-- Her oda en çok 2 oyunculudur; herkese açık oda listesi maçları izleme veya otomatik eşleştirme işlevi değildir.
-- Aynı sekmede sayfa yenilemesi oyuncu kimliğini korur; farklı sekmeler birbirinden bağımsızdır. Sekmeyi tamamen kapatmak bağlantının geri yüklenmesini garanti etmez.
-- Ticari ölçekte kullanım, saldırı dayanıklılığı ve yüksek trafik için ek geliştirme ve gerçek ortam testleri gereklidir.
+## Veri ve oyun kuralları hakkında
+
+- Son 1.000 kayıt, sınırsız büyümeyi önlemek amacıyla sınırlandırılmıştır.
+- Oynanmakta olan oda bir oyuncu “Odadan Çık” derse iki oyuncu için kapanır; yarım kalan maç son maçlara yazılır.
+- Oyuncu anahtarı `sessionStorage` içinde, sekmeye özel olarak tutulur. Aynı sekmede sayfa yenilemesi veya geçici internet kesintisi sonrasında oturum dönebilir; **sekme tamamen kapanırsa** yeni sekmenin eski anahtarı otomatik olarak bulması garanti edilmez. Kayıtlı sonuçlar bu anahtara bağlıdır, kalıcı hesap sistemi değildir.
+- 2x/puan sistemi mevcut uygulamanın özel Türk tavlası kurallarıdır; uluslararası doubling cube kurallarına birebir eşit değildir.
+- Güvenlik kontrolleri sıradan hileleri önler, ancak bot tespiti, DDoS koruması ve dış güvenlik denetimi yapılmadığından “hile imkânsız” garantisi verilemez.
+
+Eski sürümlerden devam eden: Her elde kazanan başlar; iki oyuncu rövanş onayı gerekir; özel oda listeye girmez; herkese açık oda sadece maç başlamadan görünür; mobil arayüz desteklenir; “Made By Zirad.”, Buy Me a Coffee ve Discord bağlantıları korunur.

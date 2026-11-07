@@ -147,6 +147,8 @@ const joinRoomBtn = $('joinRoomBtn');
 const createName = $('createName');
 const joinName = $('joinName');
 const roomCodeInput = $('roomCodeInput');
+const matchHistoryListEl = $('matchHistoryList');
+const refreshHistoryBtn = $('refreshHistoryBtn');
 const targetScoreSelect = $('targetScore');
 const lobbyMessage = $('lobbyMessage');
 const roomCodeLabel = $('roomCodeLabel');
@@ -169,6 +171,8 @@ const closeRoundModalBtn = $('closeRoundModalBtn');
 const whiteCard = $('whiteCard');
 const blackCard = $('blackCard');
 const tableWrap = $('tableWrap');
+const boardZoomBtn = $('boardZoomBtn');
+const mobileBoardTip = $('mobileBoardTip');
 const chatMessagesEl = $('chatMessages');
 const chatInput = $('chatInput');
 const sendChatBtn = $('sendChatBtn');
@@ -212,32 +216,35 @@ function showToast(message, variant = 'info') {
   setTimeout(remove, 2600);
 }
 
+// Mobil tahta CSS grid ile ekrana uyarlanır: transform ölçeklemesi dokunma
+// hedeflerini ve görsel ölçüleri bozduğu için kullanılmaz.
 function updateBoardScale() {
   if (!board || !tableWrap) return;
+  board.classList.remove('mobileScaled');
   board.style.removeProperty('--board-scale');
   tableWrap.style.removeProperty('--board-height');
-  board.classList.remove('mobileScaled');
-  if (window.innerWidth > 860 || gameScreen.classList.contains('hidden')) return;
-
-  // Sabit tahmini boyutlar yerine tahtanın gerçek kapladığı alanı ölç.
-  // Mobilde sağdaki taş toplama bölmesi de ölçeğe dahil edilir.
-  const naturalWidth = board.offsetWidth;
-  const naturalHeight = board.offsetHeight;
-  const tray = board.querySelector('.offTray');
-  const trayStyle = tray && getComputedStyle(tray);
-  const trayOverhang = trayStyle ? Math.abs(parseFloat(trayStyle.right) || 0) + 2 : 0;
-  const wrapStyle = getComputedStyle(tableWrap);
-  const innerWidth = tableWrap.clientWidth - (parseFloat(wrapStyle.paddingLeft) || 0)
-    - (parseFloat(wrapStyle.paddingRight) || 0) - 3;
-  if (!naturalWidth || !naturalHeight || innerWidth <= 0) return;
-  const scale = Math.min(1, innerWidth / (naturalWidth + trayOverhang));
-  board.classList.add('mobileScaled');
-  board.style.setProperty('--board-scale', String(scale));
-  const verticalPadding = (parseFloat(wrapStyle.paddingTop) || 0) + (parseFloat(wrapStyle.paddingBottom) || 0);
-  tableWrap.style.setProperty('--board-height', `${Math.ceil(naturalHeight * scale + verticalPadding + 3)}px`);
+  const smallScreen = window.matchMedia('(max-width: 860px)').matches;
+  if (!smallScreen) tableWrap.classList.remove('boardZoomed');
+  if (boardZoomBtn) {
+    const expanded = smallScreen && tableWrap.classList.contains('boardZoomed');
+    boardZoomBtn.setAttribute('aria-pressed', String(expanded));
+    boardZoomBtn.textContent = expanded ? '↔ Ekrana sığdır' : '⌕ Tahtayı büyüt';
+  }
+  if (mobileBoardTip) {
+    mobileBoardTip.textContent = smallScreen && window.innerWidth < 300
+      ? 'Dar ekran: Tahtayı yana kaydırarak tüm noktaları görebilirsin.'
+      : 'Taşlar küçük görünüyorsa büyütebilir, tahtayı yana kaydırabilirsin.';
+  }
 }
 
-window.addEventListener('resize', updateBoardScale);
+boardZoomBtn?.addEventListener('click', () => {
+  if (!tableWrap || !window.matchMedia('(max-width: 860px)').matches) return;
+  tableWrap.classList.toggle('boardZoomed');
+  tableWrap.scrollLeft = 0;
+  updateBoardScale();
+});
+window.addEventListener('resize', updateBoardScale, { passive: true });
+window.visualViewport?.addEventListener('resize', updateBoardScale, { passive: true });
 
 function playSound(type = 'move') {
 
@@ -442,6 +449,39 @@ function renderPublicRooms() {
   }
 }
 
+function requestMyHistory() {
+  if (!socket.connected) return;
+  socket.emit('history:request', { playerToken: state.me.playerToken });
+}
+function renderMatchHistory(items = []) {
+  if (!matchHistoryListEl) return;
+  matchHistoryListEl.replaceChildren();
+  if (!items.length) {
+    const empty = document.createElement('p');
+    empty.className = 'emptyPublicRooms';
+    empty.textContent = 'Bu oyuncu anahtarına bağlı tamamlanmış veya yarıda kalmış maç bulunamadı.';
+    matchHistoryListEl.appendChild(empty);
+    return;
+  }
+  for (const match of items) {
+    const card = document.createElement('article');
+    card.className = 'matchHistoryItem';
+    const title = document.createElement('strong');
+    title.textContent = `${match.players?.white || 'Beyaz'} – ${match.players?.black || 'Siyah'}`;
+    const score = document.createElement('span');
+    score.textContent = `${match.scores?.white ?? 0} : ${match.scores?.black ?? 0} · Hedef ${match.targetScore}`;
+    const result = document.createElement('span');
+    result.className = `historyResult ${match.status === 'interrupted' ? 'interrupted' : ''}`;
+    result.textContent = match.status === 'interrupted' ? 'Maç yarıda kaldı' :
+      `Kazanan: ${match.players?.[match.winner] || 'Bilinmiyor'}`;
+    const date = document.createElement('small');
+    date.textContent = Number.isFinite(match.finishedAt)
+      ? new Date(match.finishedAt).toLocaleString('tr-TR') : '';
+    card.append(title, score, result, date);
+    matchHistoryListEl.appendChild(card);
+  }
+}
+
 function createRoom() {
   const name = createName.value.trim() || 'Oyuncu 1';
   state.me.name = name;
@@ -469,8 +509,9 @@ function joinRoom(requestedCode = null) {
 
 createRoomBtn.addEventListener('click', createRoom);
 joinRoomBtn.addEventListener('click', () => joinRoom());
+refreshHistoryBtn?.addEventListener('click', requestMyHistory);
 refreshPublicRoomsBtn?.addEventListener('click', () => {
-  if (socket.connected) socket.emit('rooms:request');
+  if (socket.connected) { socket.emit('rooms:request'); requestMyHistory(); }
 });
 roomCodeInput.addEventListener('input', () => {
   roomCodeInput.value = roomCodeInput.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5);
@@ -536,11 +577,12 @@ function showLobby(message = '', error = false) {
   url.searchParams.delete('room');
   window.history.replaceState(null, '', url.toString());
   setLobbyMessage(message, error);
-  if (socket.connected) socket.emit('rooms:request');
+  if (socket.connected) { socket.emit('rooms:request'); requestMyHistory(); }
 }
 
 function leaveRoom() {
   if (!state.me.roomCode || state.leaveRequested) return;
+  if (!socket.connected) return showToast('Odadan ayrılmak için önce sunucuya yeniden bağlanmalısın.', 'warning');
   if (!window.confirm('Odadan çıkarsan oyun ve oda iki oyuncu için de kapanacak. Çıkmak istiyor musun?')) return;
   state.leaveRequested = true;
   state.suppressReconnect = true;
@@ -560,6 +602,7 @@ function renderConnectionStatus() {
   createRoomBtn.disabled = !connected;
   joinRoomBtn.disabled = !connected;
   if (refreshPublicRoomsBtn) refreshPublicRoomsBtn.disabled = !connected;
+  if (refreshHistoryBtn) refreshHistoryBtn.disabled = !connected;
   renderPublicRooms();
 }
 
@@ -575,6 +618,7 @@ socket.on('connect', () => {
   // Sunucu yeniden bağlandığında oyuncunun odasını geri iste.
   renderConnectionStatus();
   socket.emit('rooms:request');
+  requestMyHistory();
   if (state.me.playerToken && !state.suppressReconnect) {
     socket.emit('player:reconnect', { playerToken: state.me.playerToken, autoDice: state.autoDice });
   }
@@ -584,8 +628,22 @@ socket.on('disconnect', () => {
   state.publicRooms = [];
   renderPublicRooms();
   if (state.me.roomCode) statusText.textContent = 'Bağlantı kesildi. Yeniden bağlanılıyor...';
+  rollDiceBtn.disabled = true;
+  confirmBtn.disabled = true;
+  resetTurnBtn.disabled = true;
+  if (doubleOfferBtn) doubleOfferBtn.disabled = true;
 });
 
+// Rakibin geri dönüş süresi ekran açıkken de güncellensin.
+setInterval(() => {
+  if (!socket.connected || !state.room?.players || !state.me.color) return;
+  const rival = state.room.players[state.me.color === 'white' ? 'black' : 'white'];
+  if (!rival || rival.connected || !rival.reconnectUntil) return;
+  const remaining = Math.max(0, Math.ceil((rival.reconnectUntil - Date.now()) / 60000));
+  statusText.textContent = `Rakip koptu; maç durdu. Yeniden bağlanmak için ${remaining} dakika kaldı.`;
+}, 15000);
+
+socket.on('history:list', (items) => renderMatchHistory(Array.isArray(items) ? items : []));
 socket.on('rooms:list', (rooms) => {
   state.publicRooms = Array.isArray(rooms) ? rooms : [];
   renderPublicRooms();
@@ -593,7 +651,7 @@ socket.on('rooms:list', (rooms) => {
 
 socket.on('player:reconnect-missing', () => {
   if (state.me.roomCode && !state.leaveRequested) {
-    showLobby('Sunucu yeniden başladığı için oda kapanmış. Yeni oda oluşturabilirsin.', true);
+    showLobby('Oda bulunamadı veya bağlantı kurtarma süresi doldu. Yeni oda açabilirsin.', true);
   }
 });
 socket.on('room:closed', ({ reason } = {}) => {
@@ -692,7 +750,8 @@ socket.on('state:update', (roomState) => {
   if (!bothPlayersReady) {
     statusText.textContent = t('waitingRoom');
   } else if (enemyConnected === false) {
-    statusText.textContent = t('enemyDisconnected');
+    const deadline = roomState.players[state.me.color === 'white' ? 'black' : 'white']?.reconnectUntil;
+    statusText.textContent = deadline ? `Rakip koptu; maç durdu. Yeniden bağlanmak için ${Math.max(0, Math.ceil((deadline - Date.now()) / 60000))} dakika kaldı.` : t('enemyDisconnected');
   } else if (roomState.game.winner) {
     statusText.textContent = t('matchWon');
   } else if (roomState.game.animating) {
@@ -715,9 +774,9 @@ socket.on('state:update', (roomState) => {
   }
 
   updateAutoDiceControls();
-  rollDiceBtn.disabled = state.autoDice || !myTurn || !roomState.game.waitingForRoll || roomState.game.winner || roomState.game.animating || state.diceAnimating || !!roomState.game.doubleOffer;
-  confirmBtn.disabled = !myTurn || !roomState.game.canConfirm || roomState.game.winner || roomState.game.animating || !!roomState.game.doubleOffer;
-  resetTurnBtn.disabled = !myTurn || !roomState.game.hasRolled || !roomState.game.movedThisTurn || roomState.game.winner || roomState.game.animating || !!roomState.game.doubleOffer;
+  rollDiceBtn.disabled = !socket.connected || !enemyConnected || state.autoDice || !myTurn || !roomState.game.waitingForRoll || roomState.game.winner || roomState.game.animating || state.diceAnimating || !!roomState.game.doubleOffer;
+  confirmBtn.disabled = !socket.connected || !enemyConnected || !myTurn || !roomState.game.canConfirm || roomState.game.winner || roomState.game.animating || !!roomState.game.doubleOffer;
+  resetTurnBtn.disabled = !socket.connected || !enemyConnected || !myTurn || !roomState.game.hasRolled || !roomState.game.movedThisTurn || roomState.game.winner || roomState.game.animating || !!roomState.game.doubleOffer;
 
   if (doubleStatusText) {
     if (roomState.game.doubleOffer) {
@@ -736,7 +795,7 @@ socket.on('state:update', (roomState) => {
     }
   }
   if (doubleOfferBtn) {
-    doubleOfferBtn.disabled = !myTurn || !roomState.game.canOfferDouble || !!roomState.game.doubleOffer || roomState.game.winner || roomState.game.animating;
+    doubleOfferBtn.disabled = !socket.connected || !enemyConnected || !myTurn || !roomState.game.canOfferDouble || !!roomState.game.doubleOffer || roomState.game.winner || roomState.game.animating;
   }
 
   if (previousDoubleOffer && !roomState.game.doubleOffer) {
@@ -759,7 +818,7 @@ socket.on('state:update', (roomState) => {
     const myVote = !!roomState.game.rematchVotes?.[state.me.color];
     const otherVote = !!roomState.game.rematchVotes?.[state.me.color === 'white' ? 'black' : 'white'];
     if (rematchBtn) {
-      rematchBtn.disabled = myVote || !enemyConnected;
+      rematchBtn.disabled = myVote || !socket.connected || !enemyConnected;
       rematchBtn.textContent = myVote ? 'Rövanş istendi ✓' : 'Rövanş İste';
     }
     if (rematchStatusText) rematchStatusText.textContent = myVote
@@ -1146,8 +1205,12 @@ function makeFloatingChecker(color, fromPos) {
   const checker = document.createElement('div');
   checker.className = `checker ${color} floatingChecker`;
   checker.style.setProperty('--checker-image', `url(${currentSkinAsset(color)})`);
-  checker.style.left = `${fromPos.x - 28}px`;
-  checker.style.top = `${fromPos.y - 28}px`;
+  const reference = board.querySelector('.point .checker, .barZone .checker, .offTray .checker');
+  const size = reference?.getBoundingClientRect().width || 56;
+  checker.style.width = `${size}px`;
+  checker.style.height = `${size}px`;
+  checker.style.left = `${fromPos.x - size / 2}px`;
+  checker.style.top = `${fromPos.y - size / 2}px`;
   return checker;
 }
 
@@ -1168,8 +1231,9 @@ async function animateMove(color, path) {
     if (!targetPos) continue;
     floating.style.transition = 'left 260ms ease, top 260ms ease';
     requestAnimationFrame(() => {
-      floating.style.left = `${targetPos.x - 28}px`;
-      floating.style.top = `${targetPos.y - 28}px`;
+      const halfSize = floating.offsetWidth / 2;
+      floating.style.left = `${targetPos.x - halfSize}px`;
+      floating.style.top = `${targetPos.y - halfSize}px`;
     });
     await wait(280);
     currentPos = targetPos;

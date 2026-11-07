@@ -5,7 +5,12 @@ const path = require('node:path');
 const vm = require('node:vm');
 const gameRules = require('../server/game');
 
-function harness() {
+function harness(initialSnapshot = null) {
+  let savedSnapshot = initialSnapshot ? structuredClone(initialSnapshot) : null;
+  const fakeStorage = {
+    loadSnapshot: () => savedSnapshot && structuredClone(savedSnapshot),
+    saveSnapshot: snapshot => { savedSnapshot = structuredClone(snapshot); }
+  };
   const sockets = new Map();
   const callbacks = new Map();
   const timers = new Map();
@@ -65,6 +70,7 @@ function harness() {
       : name === 'http' ? fakeHttp
       : name === 'socket.io' ? { Server: FakeIO }
       : name === './game' ? gameRules
+      : name === './storage' ? fakeStorage
       : nativeRequire(name),
     __dirname: path.join(__dirname, '..', 'server'),
     console: { log() {} }, process: { env: {} },
@@ -73,7 +79,7 @@ function harness() {
   };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'server', 'server.js'), 'utf8') +
     '\n globalThis.__test = { rooms, awardRoundTo, maybeStartTurnRoll };', context);
-  return { createSocket: id => new FakeSocket(id), advance, rooms: context.__test.rooms, io, helpers: context.__test };
+  return { createSocket: id => new FakeSocket(id), advance, rooms: context.__test.rooms, io, helpers: context.__test, snapshot: () => structuredClone(savedSnapshot) };
 }
 function setupPair({ autoDice = false, score = 5 } = {}) {
   const h = harness();
@@ -253,6 +259,7 @@ test('bağlantısı düşmüş oyuncu kimliğiyle odadan çıkılabilir', () => 
   const { a, b, roomCode, rooms, createSocket } = setupPair();
   a.trigger('disconnect');
   const newSocket = createSocket('offline-leave');
+  newSocket.trigger('player:reconnect', { playerToken: 'a'.repeat(36) });
   newSocket.trigger('room:leave', { playerToken: 'a'.repeat(36) });
   assert.equal(rooms.has(roomCode), false);
   assert.match(b.last('room:closed').reason, /oda kapatıldı/i);
@@ -362,4 +369,157 @@ test('geçersiz görünürlük varsayılan özel olur ve özel odaya kodla katı
   b.trigger('room:join', { roomCode: code, playerToken: 'd'.repeat(36) });
   assert.equal(b.last('room:joined').roomCode, code);
   assert.equal(a.last('state:update').visibility, 'private');
+});
+
+test('hile denemesi: sahte zar, geçersiz hamle ve rakip sırasına müdahale reddedilir', () => {
+  const { a, b, room, createSocket, advance } = setupPair({ autoDice: false });
+  const intruder = createSocket('outsider');
+  const original = structuredClone(room.game.state);
+  intruder.trigger('dice:roll');
+  intruder.trigger('move:play', { actionId: 'fake', from: 23, to: 'off' });
+  b.trigger('dice:roll'); // Beyaz sıra kendisindeyken siyah zar atamaz.
+  assert.equal(room.game.pendingState, null);
+  a.trigger('dice:roll');
+  advance(900);
+  assert.ok(room.game.pendingState);
+  const expected = structuredClone(room.game.pendingState);
+  b.trigger('turn:reset');
+  b.trigger('turn:confirm');
+  b.trigger('move:play', { from: 23, to: 'off' });
+  a.trigger('move:play', { actionId: 'made-up', from: 23, to: 'off' });
+  a.trigger('turn:confirm'); // Kullanılabilir zar varken sıra onaylanamaz.
+  assert.deepEqual(room.game.pendingState, expected);
+  assert.deepEqual(room.game.state, original);
+  assert.equal(room.game.turn, 'white');
+});
+
+test('bağlantı koparsa yarım taş animasyonu durur ve aynı hamle güvenle oynanabilir', () => {
+  const { a, room, advance, roomCode, createSocket } = setupPair();
+  room.game.pendingState = gameRules.cloneState(room.game.state);
+  room.game.turnStartState = gameRules.cloneState(room.game.state);
+  room.game.dice = [3, 4];
+  room.game.turnStartDice = [3, 4];
+  const option = gameRules.legalMoveOptions(room.game.pendingState, 'white', room.game.dice)[0];
+  assert.ok(option);
+  a.trigger('move:play', { actionId: option.id });
+  assert.equal(room.game.animating, true);
+  a.trigger('disconnect');
+  assert.equal(room.game.animating, false);
+  advance(5000);
+  assert.deepEqual(room.game.pendingState, room.game.state);
+  const replacement = createSocket('replacement');
+  replacement.trigger('player:reconnect', { playerToken: 'a'.repeat(36) });
+  replacement.trigger('move:play', { actionId: option.id });
+  advance(1000);
+  assert.notDeepEqual(room.game.pendingState, room.game.state);
+  assert.equal(replacement.last('room:joined').roomCode, roomCode);
+});
+
+test('eski oturum yeni oturumu odadan çıkaramaz', () => {
+  const { a, b, roomCode, rooms, createSocket } = setupPair();
+  const a2 = createSocket('replacement');
+  a2.trigger('player:reconnect', { playerToken: 'a'.repeat(36) });
+  a.trigger('room:leave', { playerToken: 'a'.repeat(36) });
+  assert.ok(rooms.has(roomCode));
+  assert.match(a.last('room:error'), /yeniden bağla/i);
+  assert.equal(b.last('room:closed'), undefined);
+  a2.trigger('room:leave');
+  assert.equal(rooms.has(roomCode), false);
+});
+
+test('yeniden başlatma sonrası maç durumu, iki oyuncu ve özel oda korunur', () => {
+  const first = setupPair({ score: 7 });
+  first.room.game.turn = 'black';
+  first.room.game.scores = { white: 3, black: 2 };
+  first.room.game.pendingState = gameRules.cloneState(first.room.game.state);
+  first.room.game.turnStartState = gameRules.cloneState(first.room.game.state);
+  first.room.game.dice = [3, 4];
+  first.room.game.turnStartDice = [3, 4];
+  first.a.trigger('settings:autoDice', { enabled: false }); // kalıcı kayıt oluştur
+  const saved = first.snapshot();
+  assert.equal(saved.version, 1);
+  assert.equal(saved.rooms[0].players.white.playerToken, 'a'.repeat(36));
+  assert.equal(JSON.stringify(saved).includes('socketId'), false);
+  const second = harness(saved);
+  const recovered = second.rooms.get(first.roomCode);
+  assert.ok(recovered);
+  assert.equal(recovered.players.white.connected, false);
+  assert.equal(recovered.players.black.connected, false);
+  assert.deepEqual(recovered.game.scores, { white: 3, black: 2 });
+  assert.deepEqual(recovered.game.dice, [3, 4]);
+  const newcomer = second.createSocket('other');
+  newcomer.trigger('room:join', { roomCode: first.roomCode, playerToken: 'c'.repeat(36) });
+  assert.match(newcomer.last('room:error'), /dolu/i);
+  const a2 = second.createSocket('owner');
+  const b2 = second.createSocket('opponent');
+  a2.trigger('player:reconnect', { playerToken: 'a'.repeat(36) });
+  b2.trigger('player:reconnect', { playerToken: 'b'.repeat(36) });
+  assert.equal(a2.last('room:joined').color, 'white');
+  assert.equal(b2.last('room:joined').color, 'black');
+  assert.equal(a2.last('state:update').game.turn, 'black');
+  assert.deepEqual(a2.last('state:update').game.dice, [3, 4]);
+});
+
+test('15 dakika içinde dönmeyen oyuncunun odası kapanır ve yarım kalan maç kayda girer', () => {
+  const { a, b, roomCode, rooms, advance } = setupPair();
+  a.trigger('disconnect');
+  advance(14 * 60 * 1000);
+  assert.ok(rooms.has(roomCode));
+  advance(60 * 1000 + 1);
+  assert.equal(rooms.has(roomCode), false);
+  assert.match(b.last('room:closed').reason, /15 dakika/i);
+  b.trigger('history:request', { playerToken: 'b'.repeat(36) });
+  const history = b.last('history:list');
+  assert.equal(history.length, 1);
+  assert.equal(history[0].status, 'interrupted');
+  assert.equal(JSON.stringify(history).includes('playerTokens'), false);
+});
+
+test('biten maçın sonucu kaydedilir ve yalnızca ilgili oyuncu geçmişi görür', () => {
+  const { a, b, roomCode, room, snapshot, createSocket, helpers } = setupPair({ score: 3 });
+  room.game.scores.white = 2;
+  helpers.awardRoundTo(roomCode, room, 'white', { forcedPoints: 2 });
+  // awardRoundTo içinde maç kazanıldı; normal yayında emitRoomState ile kalıcı olur.
+  b.trigger('settings:autoDice', { enabled: false });
+  a.trigger('history:request', { playerToken: 'a'.repeat(36) });
+  b.trigger('history:request', { playerToken: 'b'.repeat(36) });
+  assert.equal(a.last('history:list')[0].winner, 'white');
+  assert.equal(a.last('history:list')[0].status, 'finished');
+  assert.equal(b.last('history:list').length, 1);
+  const stranger = createSocket('stranger');
+  stranger.trigger('history:request', { playerToken: 'c'.repeat(36) });
+  assert.deepEqual(stranger.last('history:list'), []);
+  assert.equal(snapshot().history.length, 1);
+  // Rövanş: yeni maç, yeni arşiv kaydı.
+  a.trigger('match:rematch');
+  b.trigger('match:rematch');
+  helpers.awardRoundTo(roomCode, room, 'black', { forcedPoints: 3 });
+  b.trigger('settings:autoDice', { enabled: false });
+  b.trigger('history:request', { playerToken: 'b'.repeat(36) });
+  assert.equal(b.last('history:list').length, 2);
+  assert.notEqual(b.last('history:list')[0].id, b.last('history:list')[1].id);
+});
+
+test('sunucu zarı geçerli ve rastgele; istemci sonucu belirleyemez', () => {
+  for (let i = 0; i < 100; i++) {
+    const rolled = gameRules.rollDice();
+    assert.equal(rolled.pair.length, 2);
+    assert.ok(rolled.pair.every(v => Number.isInteger(v) && v >= 1 && v <= 6));
+    assert.equal(rolled.dice.length, rolled.pair[0] === rolled.pair[1] ? 4 : 2);
+  }
+});
+
+
+test('hatalı websocket veri tipleri ve çok sık istek güvenle reddedilir', () => {
+  const { a, b, room, rooms } = setupPair({ autoDice: false });
+  const before = gameRules.cloneState(room.game.state);
+  a.trigger('move:play', { from: { toString: 7 }, to: ['off'] });
+  a.trigger('move:play', { actionId: { complex: true } });
+  a.trigger('chat:send', { text: { toString: 42 } });
+  a.trigger('chat:send', { text: 'x'.repeat(100_000) });
+  b.trigger('room:join', { roomCode: { toString: 42 }, playerToken: 'b'.repeat(36) });
+  assert.match(b.last('room:error'), /Geçersiz oda kodu/);
+  for (let i = 0; i < 250; i++) a.trigger('move:play', { actionId: 'bad' });
+  assert.deepEqual(room.game.state, before);
+  assert.equal(rooms.size, 1);
 });
