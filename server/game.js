@@ -44,6 +44,7 @@ function createMatch(targetScore = 5) {
     diceRolling: false,
     roundMultiplier: 1,
     doubleOffer: null,
+    doubleResolution: null,
     rematchVotes: { white: false, black: false }
   };
 }

@@ -43,6 +43,8 @@ const state = {
   theme: storedPrefs.theme || 'classic',
   skin: storedPrefs.skin || 'classic',
   autoDice: storedPrefs.autoDice !== false,
+  turnSound: storedPrefs.turnSound !== false,
+  lastDoubleResolutionId: null,
   toastTimer: null,
   suppressReconnect: false,
   leaveRequested: false
@@ -77,6 +79,7 @@ function savePrefs() {
     theme: state.theme,
     skin: state.skin,
     autoDice: state.autoDice,
+    turnSound: state.turnSound,
     lastName: state.me.name || createName.value.trim() || joinName.value.trim() || ''
   }));
 }
@@ -163,6 +166,8 @@ const copyRoomBtn = $('copyRoomBtn');
 const board = $('board');
 const statusText = $('statusText');
 const turnBadge = $('turnBadge');
+const turnCallout = $('turnCallout');
+const turnSoundCheckbox = $('turnSoundCheckbox');
 const whiteName = $('whiteName');
 const blackName = $('blackName');
 const whiteScore = $('whiteScore');
@@ -174,6 +179,12 @@ const resetTurnBtn = $('resetTurnBtn');
 const diceArea = $('diceArea');
 const roundModal = $('roundModal');
 const roundModalText = $('roundModalText');
+const roundModalTitle = $('roundModalTitle');
+const noticeModal = $('noticeModal');
+const noticeModalTitle = $('noticeModalTitle');
+const noticeModalText = $('noticeModalText');
+const noticeModalIcon = $('noticeModalIcon');
+const noticeModalCloseBtn = $('noticeModalCloseBtn');
 const closeRoundModalBtn = $('closeRoundModalBtn');
 const whiteCard = $('whiteCard');
 const blackCard = $('blackCard');
@@ -231,10 +242,12 @@ function renderAccount() {
   const loggedIn = !!state.account?.user;
   accountGuest?.classList.toggle('hidden', loggedIn);
   accountSignedIn?.classList.toggle('hidden', !loggedIn);
+  $('adminPanelLink')?.classList.toggle('hidden', !loggedIn || state.account?.isAdmin !== true);
   $('friendsSection')?.classList.toggle('hidden', !loggedIn);
   if (loggedIn) {
     const { user, stats = {} } = state.account;
     $('profileUsername').textContent = `@${user.username}`;
+    $('profileAccountId').textContent = user.id || '—';
     $('profileGames').textContent = String(stats.games || 0);
     $('profileWins').textContent = String(stats.wins || 0);
     $('profileLosses').textContent = String(stats.losses || 0);
@@ -393,6 +406,65 @@ function playSound(type = 'move') {
   } catch {}
 }
 
+// İki kısa, düşük sesli nota. Tarayıcı otomatik oynatmaya izin vermezse sessizce atlanır.
+function playTurnSound() {
+  if (!state.turnSound || state.isSpectator) return;
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    if (!state.audioCtx) state.audioCtx = new Ctx();
+    const ctx = state.audioCtx;
+    const sound = () => {
+      const start = ctx.currentTime + 0.015;
+      [660, 880].forEach((frequency, index) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = frequency;
+        const at = start + index * 0.13;
+        gain.gain.setValueAtTime(0.0001, at);
+        gain.gain.exponentialRampToValueAtTime(0.13, at + 0.016);
+        gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.11);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(at);
+        osc.stop(at + 0.12);
+      });
+    };
+    if (ctx.state === 'suspended') ctx.resume().then(sound).catch(() => {});
+    else sound();
+  } catch {}
+}
+
+function showNotice(title, message, icon = 'ℹ️') {
+  if (!noticeModal || !message) return;
+  noticeModalTitle.textContent = title;
+  noticeModalText.textContent = message;
+  noticeModalIcon.textContent = icon;
+  noticeModal.classList.remove('hidden');
+  noticeModalCloseBtn?.focus();
+}
+function closeNotice() { noticeModal?.classList.add('hidden'); }
+noticeModalCloseBtn?.addEventListener('click', closeNotice);
+turnSoundCheckbox && (turnSoundCheckbox.checked = state.turnSound);
+turnSoundCheckbox?.addEventListener('change', () => {
+  state.turnSound = turnSoundCheckbox.checked;
+  savePrefs();
+  if (state.turnSound) playTurnSound(); // Etkileşim sesi açmaya izin verir.
+});
+
+// Oda açma/katılma gibi ilk dokunuşta ses bağlamını hazırlıyoruz.
+// Tarayıcı izin vermezse görsel uyarı her durumda çalışır.
+document.addEventListener('pointerdown', () => {
+  if (!state.turnSound) return;
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    if (!state.audioCtx) state.audioCtx = new Ctx();
+    if (state.audioCtx.state === 'suspended') state.audioCtx.resume().catch(() => {});
+  } catch {}
+}, { once: true, passive: true });
+
 function setLobbyMessage(text, error = true) {
   lobbyMessage.textContent = text;
   lobbyMessage.style.color = error ? '#cc4158' : '#2d8a52';
@@ -475,6 +547,8 @@ function countByValue(values) {
 function showRoundSummary(summary) {
   if (!summary || state.lastRoundSummaryId === summary.id) return;
   state.lastRoundSummaryId = summary.id;
+  closeNotice(); // Önceki bilgilendirme, el sonucu penceresinin önüne geçmesin.
+  if (roundModalTitle) roundModalTitle.textContent = summary.kind === 'double_rejected' ? '2x Teklifi Reddedildi' : 'El Sonucu';
   roundModalText.textContent = summary.text;
   roundModal.classList.remove('hidden');
 }
@@ -495,7 +569,7 @@ function showDoubleOffer(offer) {
   if (!offer || !state.room) return;
   const offerer = state.room.players?.[offer.offeredBy]?.name || 'Rakip';
   if (offer.offeredBy === state.me.color) return;
-  doubleModalText.textContent = `${offerer} 2x teklifi gönderdi. Kabul edersen normal galibiyet 2, mars 4 puan kazandırır. Reddedersen ${offerer} 2 puan alır.`;
+  doubleModalText.textContent = `${offerer} 2x teklifi gönderdi. Kabul edersen normal galibiyet 2, mars 4 puan kazandırır. Reddedersen ${offerer} 1 puan alır ve yeni el başlar.`;
   doubleModal?.classList.remove('hidden');
 }
 
@@ -903,7 +977,10 @@ declineDoubleBtn?.addEventListener('click', () => {
   socket.emit('double:respond', { accept: false });
   closeDoubleModal();
 });
-closeRoundModalBtn.addEventListener('click', () => roundModal.classList.add('hidden'));
+closeRoundModalBtn.addEventListener('click', () => {
+  roundModal.classList.add('hidden');
+  if (state.room?.game?.matchSummary) showMatchSummary(state.room.game.matchSummary);
+});
 sendChatBtn?.addEventListener('click', sendChat);
 chatInput?.addEventListener('keydown', (event) => {
   if (event.key === 'Enter') sendChat();
@@ -929,6 +1006,9 @@ function showLobby(message = '', error = false) {
   applySpectatorMode();
   state.lastMatchSummaryId = null;
   state.lastRoundSummaryId = null;
+  state.lastDoubleResolutionId = null;
+  turnCallout?.classList.add('hidden');
+  closeNotice();
   gameScreen.classList.add('hidden');
   lobbyScreen.classList.remove('hidden');
   roundModal.classList.add('hidden');
@@ -1063,9 +1143,15 @@ socket.on('player:reconnect-missing', () => {
     showLobby('Oda bulunamadı veya bağlantı kurtarma süresi doldu. Yeni oda açabilirsin.', true);
   }
 });
-socket.on('room:closed', ({ reason } = {}) => {
+socket.on('room:closed', ({ reason, kind, leftBy } = {}) => {
   state.suppressReconnect = false;
-  if (state.me.roomCode) showLobby(reason || 'Oda kapatıldı.', false);
+  if (!state.me.roomCode) return; // Kullanıcı kendisi ayrılmış olabilir.
+  const wasSpectator = state.isSpectator;
+  const otherPlayerLeft = kind === 'player_left' && leftBy !== state.me.color;
+  showLobby(reason || 'Oda kapatıldı.', false);
+  if (otherPlayerLeft) showNotice(wasSpectator ? 'İzlediğin Maç Sona Erdi' : 'Rakibin Odadan Ayrıldı',
+    reason || 'Rakibin odadan ayrıldığı için oda kapatıldı. Ana menüden yeni bir oda açabilirsin.', '🚪');
+  else showNotice('Oda Kapatıldı', reason || 'Oda sona erdi. Yeni bir oda açabilir veya başka bir odaya katılabilirsin.', 'ℹ️');
 });
 socket.on('room:session-taken', () => {
   state.suppressReconnect = true;
@@ -1083,6 +1169,7 @@ socket.on('room:joined', ({ roomCode, color }) => {
   if (state.me.roomCode !== roomCode) {
     state.lastMatchSummaryId = null;
     state.lastRoundSummaryId = null;
+    state.lastDoubleResolutionId = null;
   }
   state.suppressReconnect = false;
   state.me.roomCode = roomCode;
@@ -1129,6 +1216,8 @@ socket.on('state:update', (roomState) => {
   const nextBars = JSON.stringify(roomState.game.state.bar || {});
   const previousDoubleOffer = state.room?.game?.doubleOffer || null;
   const previousMultiplier = state.room?.game?.roundMultiplier || 1;
+  const previousTurnKey = state.room?.players?.white && state.room?.players?.black && !state.room.game.winner
+    ? `${state.room.game.roundSummary?.id || 0}:${state.room.game.turn}` : null;
 
   if (!state.me.roomCode || roomState.roomCode !== state.me.roomCode) return;
   state.room = roomState;
@@ -1161,14 +1250,25 @@ socket.on('state:update', (roomState) => {
     ? roomState.players.black?.connected
     : roomState.players.white?.connected;
 
-  whiteCard.classList.remove('active-turn');
-  blackCard.classList.remove('active-turn');
-  tableWrap?.classList.toggle('active-turn-board', myTurn && !roomState.game.winner && bothPlayersReady);
+  const activeTurn = !state.isSpectator && myTurn && bothPlayersReady && enemyConnected !== false &&
+    !roomState.game.winner && !roomState.game.doubleOffer;
+  const nextTurnKey = `${roomState.game.roundSummary?.id || 0}:${roomState.game.turn}`;
+  whiteCard.classList.toggle('active-turn', roomState.game.turn === 'white' && bothPlayersReady && !roomState.game.winner);
+  blackCard.classList.toggle('active-turn', roomState.game.turn === 'black' && bothPlayersReady && !roomState.game.winner);
+  tableWrap?.classList.toggle('active-turn-board', activeTurn);
+  turnBadge.classList.toggle('my-turn-badge', activeTurn);
+  turnCallout?.classList.toggle('hidden', !activeTurn);
+  if (activeTurn && previousTurnKey !== nextTurnKey) {
+    playTurnSound();
+    turnCallout?.classList.remove('turnCalloutPulse');
+    void turnCallout?.offsetWidth; // Yeni turda animasyonu yeniden tetikler.
+    turnCallout?.classList.add('turnCalloutPulse');
+  }
   state.chatMessages = roomState.chat || state.chatMessages || [];
 
   turnBadge.textContent = roomState.game.winner
     ? t('wonMatch', { name: roomState.game.winner === 'white' ? (roomState.players.white?.name || t('white')) : (roomState.players.black?.name || t('black')) })
-    : myTurn ? t('yourTurn') : t('enemyTurn');
+    : myTurn ? '🎲 SIRA SENDE!' : t('enemyTurn');
 
   if (state.isSpectator) {
     statusText.textContent = '👁 Seyirci modu · Oyun canlı olarak güncelleniyor.';
@@ -1226,13 +1326,13 @@ socket.on('state:update', (roomState) => {
     doubleOfferBtn.disabled = !socket.connected || !enemyConnected || !myTurn || !roomState.game.canOfferDouble || !!roomState.game.doubleOffer || roomState.game.winner || roomState.game.animating;
   }
 
-  if (previousDoubleOffer && !roomState.game.doubleOffer) {
-    const offererName = roomState.players?.[previousDoubleOffer.offeredBy]?.name || 'Rakip';
-    if ((roomState.game.roundMultiplier || 1) > previousMultiplier) {
-      showToast('2x kabul edildi. Bu el artık iki kat puan verecek.', 'success');
-    } else if (!roomState.game.roundSummary && !roomState.game.matchSummary) {
-      showToast(`2x reddedildi. ${offererName} 2 puanı aldı.`, 'warning');
-    }
+  // 2x kabul sonucu ayrı bir bilgilendirme penceresiyle gösterilir.
+  // Rette ise aynı anda iki pencere açmamak için el sonucu penceresi kullanılır.
+  const resolvedDouble = roomState.game.doubleResolution;
+  if (!state.isSpectator && resolvedDouble?.accepted &&
+      resolvedDouble.id !== state.lastDoubleResolutionId) {
+    state.lastDoubleResolutionId = resolvedDouble.id;
+    showNotice('2x Kabul Edildi', resolvedDouble.text, '🎲');
   }
 
   if (!state.isSpectator && roomState.game.doubleOffer && roomState.game.doubleOffer.offeredBy !== state.me.color) showDoubleOffer(roomState.game.doubleOffer);
@@ -1242,7 +1342,7 @@ socket.on('state:update', (roomState) => {
   else roundModal.classList.add('hidden');
 
   if (roomState.game.matchSummary) {
-    showMatchSummary(roomState.game.matchSummary);
+    if (roundModal.classList.contains('hidden')) showMatchSummary(roomState.game.matchSummary);
     const myVote = !!roomState.game.rematchVotes?.[state.me.color];
     const otherVote = !!roomState.game.rematchVotes?.[state.me.color === 'white' ? 'black' : 'white'];
     if (rematchBtn) {
@@ -1674,3 +1774,14 @@ async function animateMove(color, path) {
 
 
 requestAnimationFrame(updateBoardScale);
+
+// Yönetici tanımlaması için hesap kimliği kopyalama (şifre/oturum anahtarı değildir).
+document.getElementById('copyAccountIdBtn')?.addEventListener('click', async () => {
+  const id = state.account?.user?.id;
+  if (!id) return;
+  try { await navigator.clipboard.writeText(id);
+    const button = document.getElementById('copyAccountIdBtn');
+    button.textContent = 'Kopyalandı';
+    setTimeout(() => { button.textContent = 'Kopyala'; }, 1800);
+  } catch { alert('Kopyalanamadı. Hesap kimliğini elle seçip kopyalayabilirsin.'); }
+});

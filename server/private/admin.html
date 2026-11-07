@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow,noarchive" />
+  <meta name="theme-color" content="#0b1020" />
+  <title>Tavla Online — Yönetici Paneli</title>
+  <link rel="stylesheet" href="/admin.css" />
+</head>
+<body>
+  <main class="layout">
+    <header class="top">
+      <div class="brand"><div class="mark">⚄</div><div><div class="overline">TAVLA ONLINE / ÖZEL</div><h1>Yönetici Paneli</h1></div></div>
+      <div class="tools"><span class="live" id="liveStatus"><i></i> Bağlanıyor</span><a href="/">Ana menü</a><button id="refreshBtn" type="button">↻ Yenile</button></div>
+    </header>
+    <p class="description">Aktif kullanıcılar, canlı odalar ve son 30 günün etkinlikleri. Tüm saatler cihazının yerel saat dilimindedir.</p>
+    <div id="alert" class="alert" role="status" aria-live="polite" hidden></div>
+    <section class="metrics" aria-label="Canlı istatistikler">
+      <article><span>Aktif bağlantı</span><strong id="connectionCount">—</strong><small>Birden fazla sekme ayrı sayılır</small></article>
+      <article><span>Oynayan kişi</span><strong id="playerCount">—</strong><small>Bağlı oyuncu</small></article>
+      <article><span>Devam eden maç</span><strong id="matchCount">—</strong><small>Canlı karşılaşma</small></article>
+      <article><span>Maç izleyicisi</span><strong id="watcherCount">—</strong><small>Aktif seyirci</small></article>
+      <article><span>Bekleyen oda</span><strong id="waitingCount">—</strong><small>Henüz başlamamış</small></article>
+      <article><span>Arşivlenen maç</span><strong id="archivedCount">—</strong><small>Sunucudaki toplam kayıt</small></article>
+    </section>
+    <section class="panel-group">
+      <section class="panel"><div class="panel-head"><div><h2>Şu anda bağlı olanlar</h2><p>Hesaplı oyuncuların adı görünür; misafirler oda seçene kadar anonimdir.</p></div><span id="onlineBadge" class="chip">0 bağlantı</span></div><div class="table-scroll"><table><thead><tr><th>Kullanıcı</th><th>Durum</th><th>Oda</th><th>Giriş saati</th></tr></thead><tbody id="onlineRows"><tr><td colspan="4" class="empty">Yükleniyor…</td></tr></tbody></table></div></section>
+      <section class="panel"><div class="panel-head"><div><h2>Aktif odalar</h2><p>Özel odalar da yalnızca bu yönetim görünümünde listelenir.</p></div><span id="roomBadge" class="chip">0 oda</span></div><div id="roomCards" class="room-cards"><p class="empty">Yükleniyor…</p></div></section>
+    </section>
+    <section class="panel activity-panel"><div class="panel-head"><div><h2>Etkinlik geçmişi</h2><p>Bağlantılar, odaya giriş/çıkışlar, maçlar ve hesap hareketleri.</p></div><div class="filters"><label class="sr-only" for="eventType">Etkinlik türü</label><select id="eventType"><option value="">Tüm etkinlikler</option><option value="site_visit">Siteye giriş</option><option value="site_leave">Siteden ayrılma</option><option value="login">Hesaba giriş</option><option value="register">Kayıt olma</option><option value="logout">Hesaptan çıkış</option><option value="room_created">Oda kurma</option><option value="room_joined">Odaya katılma</option><option value="room_reconnected">Yeniden bağlanma</option><option value="room_closed">Oda kapanma</option><option value="match_started">Maç başlama</option><option value="match_finished">Maç bitirme</option><option value="match_interrupted">Yarım kalan maç</option><option value="spectator_joined">İzlemeye başlama</option><option value="spectator_left">İzlemeyi bırakma</option><option value="friend_invite">Arkadaş daveti</option></select><label class="sr-only" for="eventSearch">Oyuncu veya oda ara</label><input id="eventSearch" type="search" placeholder="Oyuncu / oda ara" maxlength="50" /></div></div><div class="table-scroll"><table><thead><tr><th>Tarih ve saat</th><th>Etkinlik</th><th>Kullanıcı</th><th>Oda</th><th>Açıklama</th></tr></thead><tbody id="eventRows"><tr><td colspan="5" class="empty">Yükleniyor…</td></tr></tbody></table></div><footer><span id="eventCount">—</span><span id="updatedAt">—</span></footer></section>
+    <p class="privacy">Gizlilik: IP adresleri, şifreler, giriş çerezleri, oyuncu tokenları ve sohbet mesajları bu panelde kaydedilmez. Geçmiş en fazla 1.200 olay / 30 gün ile sınırlıdır.</p>
+  </main>
+  <script src="/admin.js" defer></script>
+</body>
+</html>

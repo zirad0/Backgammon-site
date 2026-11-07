@@ -73,6 +73,7 @@ function harness(initialSnapshot = null) {
       : name === './game' ? gameRules
       : name === './accounts' ? require('../server/accounts')
       : name === './friends' ? require('../server/friends')
+      : name === './admin-activity' ? require('../server/admin-activity')
       : name === './storage' ? fakeStorage
       : nativeRequire(name),
     __dirname: path.join(__dirname, '..', 'server'),
@@ -82,7 +83,7 @@ function harness(initialSnapshot = null) {
     setInterval: () => ({ unref() {} })
   };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'server', 'server.js'), 'utf8') +
-    '\n globalThis.__test = { rooms, accounts, archiveMatch, getAccountStats, persistAll, awardRoundTo, maybeStartTurnRoll, checkSocketOrigin, friends };', context);
+    '\n globalThis.__test = { rooms, accounts, archiveMatch, getAccountStats, persistAll, awardRoundTo, maybeStartTurnRoll, checkSocketOrigin, friends, adminOverview, activity };', context);
   return { createSocket: (id, cookie) => new FakeSocket(id, cookie), advance, rooms: context.__test.rooms, io, helpers: context.__test, snapshot: () => structuredClone(savedSnapshot) };
 }
 function setupPair({ autoDice = false, score = 5 } = {}) {
@@ -137,17 +138,18 @@ test('2x teklifi yalnızca uygun aşamada yapılır; cevap verene kadar zar atı
   assert.ok(room.game.dice.length >= 2);
 });
 
-test('2x reddi iki puan verir, yeni elde kazananı başlatır', () => {
+test('2x reddi teklif edene bir puan verir, yeni elde kazananı başlatır', () => {
   const { a, b, room, roomCode } = setupPair();
   room.game.state = separatedState();
   a.trigger('double:offer');
   b.trigger('double:respond', { accept: false });
-  assert.equal(room.game.scores.white, 2);
+  assert.equal(room.game.scores.white, 1);
   assert.equal(room.game.scores.black, 0);
   assert.equal(room.game.turn, 'white');
   assert.equal(room.game.roundMultiplier, 1);
   assert.deepEqual(Array.from(room.game.state.points), gameRules.createInitialState().points);
-  assert.match(a.last('state:update').game.roundSummary.text, /2 puan/);
+  assert.match(a.last('state:update').game.roundSummary.text, /1 puan/);
+  assert.equal(a.last('state:update').game.roundSummary.kind, 'double_rejected');
   assert.equal(roomCode.length, 5);
 });
 
@@ -199,6 +201,8 @@ test('odadan çıkış odanın kapanmasını ve iki oyuncunun bilgilendirilmesin
   a.trigger('room:leave');
   assert.equal(rooms.has(roomCode), false);
   assert.match(b.last('room:closed').reason, /oda kapatıldı/i);
+  assert.equal(b.last('room:closed').kind, 'player_left');
+  assert.equal(b.last('room:closed').leftBy, 'white');
   assert.equal(b.rooms.has(roomCode), false);
   b.trigger('dice:roll');
   assert.equal(rooms.has(roomCode), false);
@@ -242,6 +246,37 @@ test('iki kat teklifi kabul edilince mars 4 puan olur, sonraki eli yine kazanan 
   assert.equal(room.game.scores.black, 4);
   assert.equal(room.game.turn, 'black');
   assert.equal(room.game.winner, null);
+});
+
+test('2x kabulü normal galibiyeti 2, marsı 4 puan yapar ve tekrar teklif kapalıdır', () => {
+  for (const [loserOff, expectedPoints] of [[1, 2], [0, 4]]) {
+    const { a, b, room, roomCode, helpers } = setupPair({ score: 7 });
+    room.game.state = separatedState();
+    a.trigger('double:offer');
+    b.trigger('double:respond', { accept: true });
+    assert.equal(room.game.roundMultiplier, 2);
+    assert.equal(room.game.doubleResolution?.accepted, true);
+    assert.match(a.last('state:update').game.doubleResolution.text, /mars 4 puan/);
+    assert.equal(room.game.doubleOffer, null);
+    a.trigger('double:offer');
+    assert.equal(room.game.doubleOffer, null);
+    room.game.state.off.black = loserOff;
+    helpers.awardRoundTo(roomCode, room, 'white');
+    assert.equal(room.game.scores.white, expectedPoints);
+    assert.equal(room.game.roundMultiplier, 1);
+    assert.equal(room.game.doubleResolution, null);
+  }
+});
+
+test('2x reddinde bir puan hedef skora ulaştırırsa maç sona erer', () => {
+  const { a, b, room } = setupPair({ score: 3 });
+  room.game.scores.white = 2;
+  room.game.state = separatedState();
+  a.trigger('double:offer');
+  b.trigger('double:respond', { accept: false });
+  assert.equal(room.game.scores.white, 3);
+  assert.equal(room.game.winner, 'white');
+  assert.match(room.game.roundSummary.text, /1 puan/);
 });
 
 test('teklif beklerken rakip koparsa teklif iptal edilir, dönüşte tekrar oynanır', () => {
@@ -872,4 +907,24 @@ test('aktif oturum kapatılınca çevrimiçi durumu diğer arkadaşta değişir'
   h.b.disconnected = true;
   h.b.trigger('disconnect');
   assert.equal(h.a.last('friends:state').friends[0].online, false);
+});
+
+
+test('yönetim özeti aktif oyuncu ve maçları doğru sayar; etkinlik kaydı özette saklanır', () => {
+  const { a, b, helpers, snapshot, roomCode } = setupPair();
+  const data = helpers.adminOverview();
+  assert.equal(data.stats.connections, 2);
+  assert.equal(data.stats.players, 2);
+  assert.equal(data.stats.activeMatches, 1);
+  assert.equal(data.stats.spectators, 0);
+  assert.equal(data.rooms[0].roomCode, roomCode);
+  assert.equal(data.online.find(user => user.name === 'A').role, 'player');
+  assert.equal(data.online.find(user => user.name === 'B').role, 'player');
+  const events = data.events.map(e => e.type);
+  assert.ok(events.includes('room_created'));
+  assert.ok(events.includes('room_joined'));
+  assert.ok(events.includes('match_started'));
+  assert.equal(JSON.stringify(snapshot().activity).includes('a'.repeat(36)), false);
+  assert.equal(JSON.stringify(snapshot().activity).includes('b'.repeat(36)), false);
+  assert.equal(snapshot().activity.filter(e => e.type === 'match_started').length, 1);
 });

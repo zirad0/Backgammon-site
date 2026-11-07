@@ -32,6 +32,7 @@ async function runStartup(env, snapshot = null) {
       : name === 'socket.io' ? { Server: FakeIO } : name === './game' ? gameRules
       : name === './accounts' ? require('../server/accounts')
       : name === './friends' ? require('../server/friends')
+      : name === './admin-activity' ? require('../server/admin-activity')
       : name === './storage' ? { loadSnapshot: () => null, saveSnapshot: () => {} }
       : name === './postgres-store' ? { PostgresStore: FakePostgres } : require(name),
     setTimeout, clearTimeout, setInterval: () => ({ unref() {} })

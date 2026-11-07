@@ -7,7 +7,7 @@ const path = require('node:path');
 const game = require('../server/game');
 const accounts = require('../server/accounts');
 
-function makeApp() {
+function makeApp({ env = {}, snapshot = null } = {}) {
   const routes = new Map();
   const app = { disable() {}, use() {}, get(route, cb) { routes.set(`GET ${route}`, cb); },
     post(route, cb) { routes.set(`POST ${route}`, cb); } };
@@ -20,8 +20,9 @@ function makeApp() {
       : name === 'socket.io' ? { Server: class { constructor() { return io; } } }
       : name === './game' ? game : name === './accounts' ? accounts
       : name === './friends' ? require('../server/friends')
-      : name === './storage' ? { loadSnapshot: () => null, saveSnapshot: () => {} } : require(name),
-    process: { env: {} }, console: { log() {}, warn() {}, error() {} },
+      : name === './admin-activity' ? require('../server/admin-activity')
+      : name === './storage' ? { loadSnapshot: () => snapshot, saveSnapshot: () => {} } : require(name),
+    process: { env }, console: { log() {}, warn() {}, error() {} },
     __dirname: path.join(__dirname, '..', 'server'), URL,
     setTimeout, clearTimeout, setInterval: () => ({ unref() {} })
   };
@@ -34,7 +35,8 @@ function makeApp() {
     const response = { statusCode: 200, headers: {}, body: null,
       status(code) { this.statusCode = code; return this; },
       setHeader(key, value) { this.headers[key] = value; },
-      json(value) { this.body = JSON.parse(JSON.stringify(value)); return this; } };
+      json(value) { this.body = JSON.parse(JSON.stringify(value)); return this; },
+      sendFile(value) { this.filePath = value; return this; } };
     const handler = routes.get(`${method} ${url}`);
     assert.ok(handler, `Route must exist: ${method} ${url}`);
     await handler(req, response);
@@ -70,4 +72,57 @@ test('HTTP hesap istekleri aynı origin ve JSON içerik türü ister', async () 
   assert.equal((await request('POST', '/api/auth/register', { ...payload, origin: 'https://evil.example' })).statusCode, 403);
   assert.equal((await request('POST', '/api/auth/register', { ...payload, contentType: false })).statusCode, 403);
   assert.equal((await request('GET', '/api/me')).body.authenticated, false);
+});
+
+test('yönetim API ve özel HTML gerçek hesap kimliği olmadan açılamaz', async () => {
+  const existing = new accounts.Accounts();
+  const owner = existing.register('Zirad', 'OwnerPassword123!');
+  const other = existing.register('RandomPlayer', 'NormalPassword123!');
+  const snapshot = { ...existing.serialize(), rooms: [], history: [] };
+  const { request } = makeApp({ env: { ADMIN_USER_ID: owner.user.id }, snapshot });
+  const adminCookie = `tavla_session=${owner.token}`;
+  const otherCookie = `tavla_session=${other.token}`;
+  assert.equal((await request('GET', '/api/admin/overview')).statusCode, 401);
+  assert.equal((await request('GET', '/api/admin/overview', { cookie: otherCookie })).statusCode, 403);
+  assert.equal((await request('GET', '/yonetim', { cookie: otherCookie })).statusCode, 403);
+  const ok = await request('GET', '/api/admin/overview', { cookie: adminCookie });
+  assert.equal(ok.statusCode, 200);
+  assert.equal(ok.headers['Cache-Control'], 'private, no-store, max-age=0');
+  assert.equal(ok.body.stats.players, 0);
+  assert.deepEqual(ok.body.online, []);
+  const page = await request('GET', '/yonetim', { cookie: adminCookie });
+  assert.equal(page.statusCode, 200);
+  assert.match(page.filePath, /server[/\\]private[/\\]admin\.html$/);
+  assert.equal((await request('GET', '/api/me', { cookie: adminCookie })).body.isAdmin, true);
+  assert.equal((await request('GET', '/api/me', { cookie: otherCookie })).body.isAdmin, false);
+});
+
+test('ADMIN_USER_ID ayarlanmamışsa hesabı olan kullanıcı bile yönetici değildir', async () => {
+  const { request } = makeApp();
+  const signup = await request('POST', '/api/auth/register', {
+    body: { username: 'PlayerForAdmin', password: 'GoodPassword123!' }
+  });
+  const cookie = signup.headers['Set-Cookie'].split(';')[0];
+  assert.equal(signup.body.isAdmin, false);
+  assert.equal((await request('GET', '/api/admin/overview', { cookie })).statusCode, 403);
+});
+
+
+test('HTTP API Türkçe karakterli kullanıcı adıyla kayıt ve girişe izin verir', async () => {
+  const { request } = makeApp();
+  const signup = await request('POST', '/api/auth/register', {
+    body: { username: 'Aybüke', password: 'TurkceKarakter123!' }
+  });
+  assert.equal(signup.statusCode, 200);
+  assert.equal(signup.body.user.username, 'Aybüke');
+  const login = await request('POST', '/api/auth/login', {
+    body: { username: 'aybüke', password: 'TurkceKarakter123!' }
+  });
+  assert.equal(login.statusCode, 200);
+  assert.equal(login.body.user.id, signup.body.user.id);
+  const duplicate = await request('POST', '/api/auth/register', {
+    body: { username: 'AYBÜKE', password: 'TurkceKarakter123!' }
+  });
+  assert.equal(duplicate.statusCode, 400);
+  assert.match(duplicate.body.error, /zaten kullanılıyor/);
 });

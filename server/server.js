@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const { loadSnapshot, saveSnapshot } = require('./storage');
 const { Accounts, SESSION_MAX_AGE_MS, publicUser, tokenHash, readCookie } = require('./accounts');
 const { Friends } = require('./friends');
+const { ActivityLog } = require('./admin-activity');
 const { Server } = require('socket.io');
 const {
   createMatch,
@@ -108,7 +109,7 @@ app.use((_req, res, next) => {
 });
 app.get('/health', (_req, res) => {
   const ok = isStorageReady();
-  res.status(ok ? 200 : 503).json({ ok, version: 'v17', storage: databaseConfigured ? 'postgres' : 'file' });
+  res.status(ok ? 200 : 503).json({ ok, version: 'v19', storage: databaseConfigured ? 'postgres' : 'file' });
 });
 // Oturum yalnızca HttpOnly SameSite cookie'den okunur; tarayıcı JS'si oturum anahtarını göremez.
 const authRate = new Map();
@@ -146,7 +147,7 @@ function getHttpAccount(req) {
   return accounts.resolveToken(readCookie(req.headers?.cookie));
 }
 function getProfile(account) {
-  return { authenticated: true, user: publicUser(account), stats: getAccountStats(account.id),
+  return { authenticated: true, isAdmin: isAdminAccount(account), user: publicUser(account), stats: getAccountStats(account.id),
     recentMatches: getAccountRecentMatches(account.id) };
 }
 if (typeof express.json === 'function') app.use('/api/auth', express.json({ limit: '2kb' }));
@@ -158,13 +159,14 @@ if (typeof app.post === 'function') {
     try {
       const { username, password } = req.body || {};
       const result = kind === 'register' ? accounts.register(username, password) : accounts.login(username, password);
+      recordActivity(kind, result.user.username, {}, true);
       await persistAll();
       res.setHeader('Set-Cookie', sessionCookie(req, result.token, Math.floor(SESSION_MAX_AGE_MS / 1000)));
       return res.json(getProfile(accounts.resolveToken(result.token)));
     } catch (error) {
       if (error.message === 'Kullanıcı adı veya şifre yanlış.') return res.status(401).json({ error: error.message });
       if (['Bu kullanıcı adı zaten kullanılıyor.', 'Şifre 8–128 karakter olmalı.',
-        'Kullanıcı adı 3–20 karakter olmalı; yalnızca harf, rakam ve _ kullanılabilir.'].includes(error.message))
+        'Kullanıcı adı 3–20 karakter olmalı; Türkçe harf, rakam ve _ kullanılabilir.'].includes(error.message))
         return res.status(400).json({ error: error.message });
       logEvent('error', 'account_write_failed', { message: error.message });
       return res.status(503).json({ error: 'Hesap şu anda kaydedilemiyor.' });
@@ -175,6 +177,7 @@ if (typeof app.post === 'function') {
     if (!isStorageReady()) return res.status(503).json({ error: 'Veritabanına erişilemiyor.' });
     const loggedOutAccount = getHttpAccount(req);
     accounts.revokeToken(readCookie(req.headers?.cookie));
+    if (loggedOutAccount) recordActivity('logout', loggedOutAccount.username, {}, true);
     try { await persistAll(); }
     catch { return res.status(503).json({ error: 'Çıkış kaydedilemedi.' }); }
     if (loggedOutAccount) sendFriendPresence(loggedOutAccount.id);
@@ -182,6 +185,24 @@ if (typeof app.post === 'function') {
     return res.json({ authenticated: false });
   });
 }
+// Yönetici endpoint'leri yalnızca önceden oluşturulmuş ADMIN_USER_ID hesabının oturumuna açık.
+// Arayüz gizlenmesi güvenlik değildir; gerçek yetki kontrolü HER istekte sunucuda yapılır.
+function checkAdminRequest(req, res) {
+  res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+  if (!isStorageReady()) { res.status(503).json({ error: 'Kayıt sistemi şu anda kullanılamıyor.' }); return false; }
+  const account = getHttpAccount(req);
+  if (!account) { res.status(401).json({ error: 'Giriş yapmalısın.' }); return false; }
+  if (!isAdminAccount(account)) { res.status(403).json({ error: 'Yönetici yetkisi gerekli.' }); return false; }
+  return true;
+}
+app.get('/api/admin/overview', (req, res) => {
+  if (!checkAdminRequest(req, res)) return;
+  return res.json(adminOverview());
+});
+app.get('/yonetim', (req, res) => {
+  if (!checkAdminRequest(req, res)) return;
+  return res.sendFile(path.join(__dirname, 'private', 'admin.html'));
+});
 app.get('/api/me', (req, res) => {
   if (!isStorageReady()) return res.status(503).json({ error: 'Veritabanına erişilemiyor.' });
   const account = getHttpAccount(req);
@@ -197,6 +218,64 @@ app.use((error, _req, res, _next) => {
 const rooms = new Map();
 const accounts = new Accounts();
 const friends = new Friends();
+const activity = new ActivityLog();
+const ADMIN_USER_ID = String(process.env.ADMIN_USER_ID || '').trim();
+let pendingActivitySave = null;
+function isAdminAccount(account) {
+  return !!(account && ADMIN_USER_ID && account.id === ADMIN_USER_ID);
+}
+function activityActor(socket) {
+  return getSocketAccount(socket)?.username || socket?.data?.displayName || 'Misafir';
+}
+function recordActivity(type, actor, details = {}, alreadySaving = false) {
+  activity.append(type, actor, details);
+  // Özet veri tabanına her WebSocket bağlantısında devasa yazı göndermemek için kısa aralıklı toplu kayıt.
+  if (alreadySaving || pendingActivitySave) return;
+  pendingActivitySave = setTimeout(() => {
+    pendingActivitySave = null;
+    try {
+      const saving = persistAll();
+      if (saving) saving.catch(error => logEvent('error', 'activity_save_failed', { message: error.message }));
+    } catch (error) { logEvent('error', 'activity_save_failed', { message: error.message }); }
+  }, 1500);
+  pendingActivitySave.unref?.();
+}
+function adminOverview() {
+  const allSockets = [...io.sockets.sockets.values()].filter(socket => !socket.disconnected);
+  const playerSockets = new Set();
+  const activeRooms = [...rooms.entries()].map(([roomCode, room]) => {
+    for (const player of [room.players.white, room.players.black]) {
+      if (player?.connected && player.socketId) playerSockets.add(player.socketId);
+    }
+    return {
+      roomCode, visibility: room.visibility, status: !room.hasStarted ? 'waiting' : room.game.winner ? 'finished' : 'playing',
+      startedAt: room.createdAt, targetScore: room.game.targetScore,
+      players: ['white','black'].map(color => room.players[color] ? {
+        name: room.players[color].name, color, connected: !!room.players[color].connected,
+        account: !!room.players[color].accountId
+      } : null).filter(Boolean),
+      scores: { ...room.game.scores }, spectators: room.spectators?.size || 0
+    };
+  });
+  const viewerSockets = new Set(allSockets.filter(socket => socket.data.watchingRoom).map(socket => socket.id));
+  const online = allSockets.map(socket => {
+    const found = findPlayerRoom(socket.id);
+    const role = found ? 'player' : viewerSockets.has(socket.id) ? 'spectator' : 'visitor';
+    return { name: activityActor(socket), registered: !!getSocketAccount(socket),
+      role, joinedAt: socket.data.connectedAt || Date.now(),
+      roomCode: found?.roomCode || socket.data.watchingRoom || null };
+  }).sort((a, b) => a.joinedAt - b.joinedAt);
+  return { generatedAt: Date.now(), stats: {
+    connections: allSockets.length,
+    uniqueAccounts: new Set(allSockets.map(s => getSocketAccount(s)?.id).filter(Boolean)).size,
+    players: playerSockets.size,
+    spectators: viewerSockets.size,
+    activeMatches: activeRooms.filter(room => room.status === 'playing').length,
+    waitingRooms: activeRooms.filter(room => room.status === 'waiting').length,
+    archivedMatches: matchHistory.length,
+    finishedMatches: matchHistory.filter(item => item.status === 'finished').length
+  }, online, rooms: activeRooms, events: activity.recent(150) };
+}
 const pendingInvites = new Map(); // geçici oyun davetleri; maç/arkadaşlık ilişkileri kalıcıdır
 const matchHistory = [];
 let nextChatId = 1;
@@ -212,6 +291,7 @@ function persistAll() {
     history: matchHistory,
     ...accounts.serialize(),
     friends: friends.serialize(),
+    activity: activity.serialize(),
     rooms: [...rooms.entries()].map(([roomCode, room]) => ({
       roomCode,
       players: Object.fromEntries(['white', 'black'].map(color => {
@@ -260,6 +340,9 @@ function archiveMatch(room, status = 'finished') {
     targetScore: game.targetScore
   };
   game.archiveId = record.id;
+  recordActivity(status === 'finished' ? 'match_finished' : 'match_interrupted',
+    record.winner ? record.players[record.winner] : 'Sistem',
+    { description: `${record.players.white} - ${record.players.black} (${record.scores.white}:${record.scores.black})` });
   matchHistory.push(record);
   if (matchHistory.length > 1000) matchHistory.splice(0, matchHistory.length - 1000);
   for (const player of [room.players.white, room.players.black]) {
@@ -291,17 +374,18 @@ function sendHistory(socket, token) {
   if (account) socket.emit('account:profile', { user: publicUser(account), stats: getAccountStats(account.id) });
 }
 
-function removeRoom(roomCode, room, reason) {
+function removeRoom(roomCode, room, reason, { kind = 'closed', leftBy = null } = {}) {
   if (rooms.get(roomCode) !== room) return;
   clearGameTimers(room.game);
   for (const timer of Object.values(room.reconnectTimers || {})) clearTimeout(timer);
   archiveMatch(room, room.game.winner ? 'finished' : 'interrupted');
   rooms.delete(roomCode);
+  recordActivity('room_closed', room.players.white?.name || 'Sistem', { roomCode, description: reason });
   const saved = persistAll();
   const notify = () => {
     broadcastOpenPublicRooms();
-    io.to(roomCode).emit('room:closed', { reason });
-    io.to(viewerChannel(roomCode)).emit('room:closed', { reason });
+    io.to(roomCode).emit('room:closed', { reason, kind, leftBy });
+    io.to(viewerChannel(roomCode)).emit('room:closed', { reason, kind, leftBy });
     for (const viewerId of room.spectators || []) {
       const viewer = io.sockets.sockets.get(viewerId);
       if (viewer) { viewer.leave(viewerChannel(roomCode)); viewer.data.watchingRoom = null; }
@@ -341,6 +425,7 @@ function restoreSavedRooms(saved) {
   if (!saved) return;
   accounts.restore(saved.users, saved.sessions);
   friends.restore(saved.friends);
+  activity.restore(saved.activity);
   nextChatId = Math.max(1, Number(saved.nextChatId) || 1);
   nextSummaryId = Math.max(1, Number(saved.nextSummaryId) || 1);
   for (const history of saved.history.slice(-1000)) {
@@ -594,6 +679,7 @@ function updateSpectatorCount(roomCode, room) {
 function stopWatching(socket) {
   const roomCode = socket.data.watchingRoom;
   if (!roomCode) return;
+  recordActivity('spectator_left', activityActor(socket), { roomCode });
   socket.leave(viewerChannel(roomCode));
   socket.data.watchingRoom = null;
   const room = rooms.get(roomCode);
@@ -635,7 +721,7 @@ function canOfferDouble(room) {
   return arePlayersSeparated(game.state);
 }
 
-function awardRoundTo(roomCode, room, winner, { multiplierOverride = null, reasonText = null, forcedPoints = null } = {}) {
+function awardRoundTo(roomCode, room, winner, { multiplierOverride = null, reasonText = null, forcedPoints = null, summaryKind = null } = {}) {
   const game = room.game;
   const winnerName = winner === 'white' ? (room.players.white?.name || 'Beyaz') : (room.players.black?.name || 'Siyah');
   clearGameTimers(game);
@@ -646,11 +732,13 @@ function awardRoundTo(roomCode, room, winner, { multiplierOverride = null, reaso
 
   game.roundSummary = {
     id: nextSummaryId++,
+    kind: summaryKind,
     text: reasonText || `${winnerName} bu eli kazandı. ${basePoints} puan x ${multiplier} = ${totalPoints} puan aldı.`
   };
   game.scores[winner] += totalPoints;
   pushChatMessage(room, 'system', 'Sistem', `${winnerName} bu eli kazandı ve ${totalPoints} puan aldı.`);
   game.doubleOffer = null;
+  game.doubleResolution = null;
   game.roundMultiplier = 1;
   game.pendingState = null;
   game.dice = [];
@@ -707,6 +795,7 @@ function buildPublicState(roomCode, room) {
       matchSummary: game.matchSummary || null,
       animating: !!game.animating,
       roundMultiplier: game.roundMultiplier || 1,
+      doubleResolution: game.doubleResolution || null,
       noContactPhase: arePlayersSeparated(activeState),
       canOfferDouble: canOfferDouble(room),
       doubleOffer: game.doubleOffer || null,
@@ -869,12 +958,14 @@ function emitAfterPersist(cb) {
 }
 
 io.on('connection', (socket) => {
+  socket.data.connectedAt = Date.now();
   const sessionToken = readCookie(socket.request?.headers?.cookie);
   socket.data.sessionHash = sessionToken && accounts.resolveToken(sessionToken) ? tokenHash(sessionToken) : null;
   socket.join(PUBLIC_LOBBY_CHANNEL);
   socket.emit('rooms:list', listOpenPublicRooms());
   socket.emit('matches:list', listSpectatablePublicMatches());
   const initialAccount = getSocketAccount(socket);
+  recordActivity('site_visit', initialAccount?.username || 'Misafir');
   if (initialAccount) {
     sendFriendPresence(initialAccount.id);
     sendFriendInvitations(initialAccount.id);
@@ -943,6 +1034,8 @@ io.on('connection', (socket) => {
       while (rooms.has(code)) code = randomRoomCode();
       const room = createRoomModel(score, socket.id, account.username, playerToken, autoDice, 'private', account.id, false);
       rooms.set(code, room);
+      socket.data.displayName = account.username;
+      recordActivity('room_created', account.username, { roomCode: code, description: 'Özel davet odası' });
       socket.join(code);
       found = { roomCode: code, room, color: 'white' };
       socket.emit('room:joined', { roomCode: code, color: 'white' });
@@ -958,6 +1051,7 @@ io.on('connection', (socket) => {
     pendingInvites.set(inviteId, { id: inviteId, fromId: account.id,
       toId: userId, roomCode, createdAt: now, expiresAt: now + FRIEND_INVITE_LIFETIME });
     sendFriendInvitations(userId);
+    recordActivity('friend_invite', account.username, { roomCode, description: `Davet edilen: ${accounts.users.get(userId).username}` });
     socket.emit('friends:invite:sent', { username: accounts.users.get(userId).username, roomCode });
   });
   friendAction(socket, 'friends:invite:respond', (account, { inviteId, accept }) => {
@@ -1000,6 +1094,7 @@ io.on('connection', (socket) => {
     }
     room.spectators.add(socket.id);
     socket.data.watchingRoom = roomCode;
+    recordActivity('spectator_joined', activityActor(socket), { roomCode });
     socket.join(viewerChannel(roomCode));
     socket.emit('viewer:joined', { roomCode });
     socket.emit('state:update', buildSpectatorState(roomCode, room));
@@ -1038,6 +1133,8 @@ io.on('connection', (socket) => {
     const room = createRoomModel(score, socket.id, playerName, playerToken, autoDice, visibility, getSocketAccount(socket)?.id || null, allowSpectators === true);
 
     rooms.set(roomCode, room);
+    socket.data.displayName = playerName;
+    recordActivity('room_created', playerName, { roomCode, description: room.visibility === 'public' ? 'Herkese açık' : 'Özel oda' });
     socket.join(roomCode);
     socket.emit('room:joined', { roomCode, color: 'white' });
     emitRoomState(roomCode);
@@ -1079,6 +1176,8 @@ io.on('connection', (socket) => {
       attachPlayer(room.players.white, socket.id, accountId ? getSocketAccount(socket).username : name, playerToken, autoDice, accountId || room.players.white.accountId || null);
       stopReconnectTimer(room, 'white');
       socket.join(roomCode);
+      socket.data.displayName = room.players.white.name;
+      recordActivity('room_reconnected', room.players.white.name, { roomCode });
       socket.emit('room:joined', { roomCode, color: 'white' });
       emitRoomState(roomCode);
       maybeStartTurnRoll(roomCode);
@@ -1091,6 +1190,8 @@ io.on('connection', (socket) => {
       attachPlayer(room.players.black, socket.id, accountId ? getSocketAccount(socket).username : name, playerToken, autoDice, accountId || room.players.black.accountId || null);
       stopReconnectTimer(room, 'black');
       socket.join(roomCode);
+      socket.data.displayName = room.players.black.name;
+      recordActivity('room_reconnected', room.players.black.name, { roomCode });
       socket.emit('room:joined', { roomCode, color: 'black' });
       emitRoomState(roomCode);
       maybeStartTurnRoll(roomCode);
@@ -1105,6 +1206,9 @@ io.on('connection', (socket) => {
     const playerName = resolvedPlayerName(socket, name, 'Oyuncu 2');
     if (!playerName) return;
     room.players.black = attachPlayer({}, socket.id, playerName, playerToken, autoDice, accountId);
+    socket.data.displayName = playerName;
+    recordActivity('room_joined', playerName, { roomCode });
+    recordActivity('match_started', room.players.white.name, { roomCode, description: `${room.players.white.name} - ${playerName}` });
     room.hasStarted = true;
     invalidateRoomInvites(roomCode);
     pushChatMessage(room, 'system', 'Sistem', `${room.players.black.name} odaya katıldı.`);
@@ -1132,6 +1236,8 @@ io.on('connection', (socket) => {
     attachPlayer(room.players[color], socket.id, accountId ? getSocketAccount(socket).username : null, playerToken, autoDice, accountId || room.players[color].accountId || null);
     stopReconnectTimer(room, color);
     socket.join(roomCode);
+    socket.data.displayName = room.players[color].name;
+    recordActivity('room_reconnected', room.players[color].name, { roomCode });
     socket.emit('room:joined', { roomCode, color });
     emitRoomState(roomCode);
     maybeStartTurnRoll(roomCode);
@@ -1305,6 +1411,11 @@ io.on('connection', (socket) => {
     if (accept) {
       game.roundMultiplier = offer.multiplier || 2;
       game.doubleOffer = null;
+      game.doubleResolution = {
+        id: nextSummaryId++,
+        accepted: true,
+        text: `${responderName} 2x teklifini kabul etti. Oyun aynı elden devam ediyor. Normal galibiyet 2, mars 4 puan. Bu elde tekrar 2x teklif edilemez.`
+      };
       pushChatMessage(room, 'system', 'Sistem', `${responderName} 2x teklifini kabul etti. Bu el ${game.roundMultiplier}x oynanacak.`);
       emitRoomState(roomCode);
       maybeStartTurnRoll(roomCode, 1000);
@@ -1320,8 +1431,9 @@ io.on('connection', (socket) => {
     game.turnStartDice = [];
 
     awardRoundTo(roomCode, room, offer.offeredBy, {
-      forcedPoints: 2,
-      reasonText: `${offererName} 2x teklifini gönderdi, ${responderName} kabul etmedi. ${offererName} bu el için 2 puan aldı.`
+      forcedPoints: 1,
+      summaryKind: 'double_rejected',
+      reasonText: `${responderName}, ${offererName} tarafından gönderilen 2x teklifini reddetti. ${offererName} 1 puan kazandı. Yeni el başladı ve ilk zarı ${offererName} atacak.`
     });
     emitRoomState(roomCode);
     if (!game.winner) maybeStartTurnRoll(roomCode);
@@ -1371,10 +1483,11 @@ io.on('connection', (socket) => {
     }
     const { roomCode, room, color } = found;
     const name = room.players[color]?.name || 'Oyuncu';
-    removeRoom(roomCode, room, `${name} odadan ayrıldı. Oda kapatıldı; yeni bir oda açabilirsiniz.`);
+    removeRoom(roomCode, room, `${name} odadan ayrıldı. Oda kapatıldı; yeni bir oda açabilirsiniz.`, { kind: 'player_left', leftBy: color });
   });
 
   socket.on('disconnect', () => {
+    recordActivity('site_leave', activityActor(socket));
     stopWatching(socket);
     const loggedInAccount = getSocketAccount(socket);
     if (loggedInAccount) {
@@ -1485,6 +1598,8 @@ if (typeof process.on === 'function') {
       for (const [, room] of rooms) clearGameTimers(room.game);
       io.close();
       server.close();
+      if (pendingActivitySave) { clearTimeout(pendingActivitySave); pendingActivitySave = null; }
+      await persistAll();
       if (databaseStore) {
         await databaseStore.flush();
         await databaseStore.close();

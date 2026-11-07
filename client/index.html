@@ -48,7 +48,8 @@
             </div>
             <form id="authForm" class="accountForm" autocomplete="on">
               <label for="authUsername">Kullanıcı adı</label>
-              <input id="authUsername" name="username" type="text" minlength="3" maxlength="20" pattern="[A-Za-z0-9_]{3,20}" autocomplete="username" placeholder="Kullanıcı adın" required />
+              <input id="authUsername" name="username" type="text" minlength="3" maxlength="20" pattern="[A-Za-z0-9_ÇĞİÖŞÜçğıöşü]{3,20}" title="3–20 karakter: Türkçe harfler, rakamlar ve alt çizgi (_) kullanılabilir." aria-describedby="authUsernameHint" autocomplete="username" placeholder="Kullanıcı adın" required />
+              <small id="authUsernameHint" class="authUsernameHint">3–20 karakter. Türkçe harfler, rakamlar ve _ kullanılabilir.</small>
               <label for="authPassword">Şifre</label>
               <input id="authPassword" name="password" type="password" minlength="8" maxlength="128" autocomplete="current-password" placeholder="En az 8 karakter" required />
               <button id="authSubmitBtn" type="submit" class="primary accountSubmit">Giriş yap</button>
@@ -59,8 +60,9 @@
         <div id="accountSignedIn" class="accountSignedIn hidden">
           <div class="accountSignedInHeader">
             <div><span class="accountLabel">OYUNCU PROFİLİN</span><h2 id="profileUsername">@oyuncu</h2><p>Oynadığın maçların istatistikleri hesabında saklanır.</p></div>
-            <button id="authLogoutBtn" type="button" class="accountLogoutBtn">Çıkış yap</button>
+            <div class="adminAccountTools"><a id="adminPanelLink" href="/yonetim" class="adminPanelLink hidden">⚙ Yönetim Paneli</a><button id="authLogoutBtn" type="button" class="accountLogoutBtn">Çıkış yap</button></div>
           </div>
+          <div class="accountIdentity">Hesap kimliğin: <code id="profileAccountId">—</code> <button id="copyAccountIdBtn" type="button">Kopyala</button></div>
           <div class="accountStats" aria-label="Oyuncu istatistikleri">
             <div><strong id="profileGames">0</strong><small>Maç</small></div>
             <div><strong id="profileWins">0</strong><small>Galibiyet</small></div>
@@ -209,12 +211,14 @@
           <div class="statusBlock">
             <div id="turnBadge" class="turnBadge" data-text="waitingTurn">Sıra bekleniyor</div>
             <div id="statusText" class="muted">Bağlantı kuruluyor...</div>
+            <label class="turnSoundControl"><input type="checkbox" id="turnSoundCheckbox" checked /> Sıra sesi 🔔</label>
           </div>
           <button id="leaveRoomBtn" class="leaveRoomBtn" title="Odadan ayrıl" aria-label="Odadan ayrıl">↗ Odadan Çık</button>
         </div>
       </div>
 
       <div id="spectatorBanner" class="spectatorBanner hidden" role="status">👁 Seyirci modundasın. Maçı canlı izleyebilirsin; oyun kontrolleri kapalıdır.</div>
+      <div id="turnCallout" class="turnCallout hidden" role="status" aria-live="polite">🎲 Sıra sende! Zar atabilir veya hamle yapabilirsin.</div>
       <div class="scoreboard card">
         <div id="whiteCard" class="playerCard">
           <div class="avatar whiteAvatar"></div>
@@ -316,7 +320,7 @@
     </div>
     <div id="roundModal" class="roundModal hidden">
       <div class="roundModalCard">
-        <div class="roundModalTitle" data-text="roundTitle">Tur Sonucu</div>
+        <div id="roundModalTitle" class="roundModalTitle" data-text="roundTitle">Tur Sonucu</div>
         <div id="roundModalText" class="roundModalText">Oyun bitti.</div>
         <button id="closeRoundModalBtn" class="primary" data-text="ok">Tamam</button>
       </div>
@@ -331,6 +335,15 @@
           <button id="declineDoubleBtn" class="resetBtn">Reddet</button>
           <button id="doubleExitBtn" class="resetBtn modalLeaveBtn">Odadan Çık</button>
         </div>
+      </div>
+    </div>
+
+    <div id="noticeModal" class="roundModal hidden" role="dialog" aria-modal="true" aria-labelledby="noticeModalTitle" aria-describedby="noticeModalText">
+      <div class="roundModalCard noticeModalCard">
+        <div id="noticeModalIcon" class="noticeModalIcon" aria-hidden="true">ℹ️</div>
+        <h2 id="noticeModalTitle" class="roundModalTitle">Bilgilendirme</h2>
+        <p id="noticeModalText" class="roundModalText"></p>
+        <button type="button" id="noticeModalCloseBtn" class="primary">Anladım</button>
       </div>
     </div>
 

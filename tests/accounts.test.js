@@ -41,3 +41,37 @@ test('geçersiz kullanıcı adı ve zayıf parolalar reddedilir', () => {
   assert.throws(() => accounts.register('ValidUser', '123'), /Şifre/);
   assert.equal(accounts.resolveToken('not-a-token'), null);
 });
+
+
+test('Türkçe harf içeren kullanıcı adları kayıt, giriş ve geri yüklemede korunur', () => {
+  const accounts = new Accounts();
+  const pass = 'TurkceKarakter123!';
+  for (const name of ['Aybüke', 'Çağla', 'Şule', 'Yiğit', 'Işık', 'İpek', 'Özge', 'Ümit']) {
+    const created = accounts.register(name, pass);
+    assert.equal(created.user.username, name);
+    assert.equal(accounts.login(name, pass).user.id, created.user.id);
+  }
+  assert.equal(accounts.login('AYBÜKE', pass).user.username, 'Aybüke');
+  assert.equal(accounts.login('ipek', pass).user.username, 'İpek');
+  assert.throws(() => accounts.register('aybüke', pass), /zaten kullanılıyor/);
+  assert.throws(() => accounts.register('İPEK', pass), /zaten kullanılıyor/);
+  assert.throws(() => accounts.register('ADMİN', pass), /Kullanıcı adı/);
+  const restored = new Accounts();
+  const snapshot = accounts.serialize();
+  restored.restore(snapshot.users, snapshot.sessions);
+  assert.equal(restored.login('Aybüke', pass).user.username, 'Aybüke');
+  assert.equal(restored.login('Şule', pass).user.username, 'Şule');
+});
+
+test('Unicode birleşik ve ayrık yazımları tek kullanıcı adı kabul edilir', () => {
+  const accounts = new Accounts();
+  const pass = 'TurkceKarakter123!';
+  const decomposed = 'Aybu\u0308ke';
+  const created = accounts.register(decomposed, pass);
+  assert.equal(created.user.username, 'Aybüke');
+  assert.equal(accounts.login(decomposed, pass).user.id, created.user.id);
+  assert.throws(() => accounts.register('Aybüke', pass), /zaten kullanılıyor/);
+  for (const invalid of ['aybü.ke', 'ay büke', 'x😎x', 'aybüke!']) {
+    assert.throws(() => accounts.register(invalid, pass), /Kullanıcı adı/);
+  }
+});

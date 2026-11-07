@@ -1,6 +1,6 @@
 {
   "name": "tavla-online",
-  "version": "0.17.0",
+  "version": "0.19.1",
   "description": "Oda sistemiyle oynanan web tabanli tavla oyunu",
   "main": "server/server.js",
   "scripts": {

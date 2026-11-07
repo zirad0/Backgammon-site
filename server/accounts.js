@@ -2,7 +2,7 @@
 
 const crypto = require('node:crypto');
 const SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
-const USERNAME_REGEX = /^[a-zA-Z0-9_]{3,20}$/;
+const USERNAME_REGEX = /^[A-Za-z0-9_ÇĞİÖŞÜçğıöşü]{3,20}$/u;
 const BLOCKED_NAMES = new Set(['sistem', 'system', 'admin', 'administrator', 'moderator']);
 const DUMMY_SALT = 'e7e1c457cfc91e1723be07a35ed6a11a';
 const DUMMY_HASH = crypto.scryptSync('deliberately-invalid-password', Buffer.from(DUMMY_SALT, 'hex'), 64);
@@ -10,7 +10,10 @@ const DUMMY_HASH = crypto.scryptSync('deliberately-invalid-password', Buffer.fro
 function tokenHash(token) {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
-function usernameKey(username) { return String(username || '').trim().toLowerCase(); }
+function usernameKey(username) {
+  // Eski ASCII hesapların anahtarlarını değiştirmeden Türkçe İ / i farkını eşitle.
+  return String(username || '').trim().normalize('NFC').toLowerCase().replace(/\u0307/g, '');
+}
 function checkUsername(username) {
   return typeof username === 'string' && USERNAME_REGEX.test(username) && !BLOCKED_NAMES.has(usernameKey(username));
 }
@@ -66,7 +69,9 @@ class Accounts {
   isReserved(name) { return this.byUsername.has(usernameKey(name)); }
   userByName(name) { return this.users.get(this.byUsername.get(usernameKey(name))) || null; }
   register(username, password) {
-    if (!checkUsername(username)) throw new Error('Kullanıcı adı 3–20 karakter olmalı; yalnızca harf, rakam ve _ kullanılabilir.');
+    // Birleşik / ayrık Unicode karakterlerini aynı isim kabul et.
+    username = typeof username === 'string' ? username.normalize('NFC') : username;
+    if (!checkUsername(username)) throw new Error('Kullanıcı adı 3–20 karakter olmalı; Türkçe harf, rakam ve _ kullanılabilir.');
     if (!checkPassword(password)) throw new Error('Şifre 8–128 karakter olmalı.');
     if (this.isReserved(username)) throw new Error('Bu kullanıcı adı zaten kullanılıyor.');
     const user = { id: crypto.randomUUID(), username, passwordHash: digestPassword(password), createdAt: Date.now() };

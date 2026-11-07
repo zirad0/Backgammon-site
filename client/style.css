@@ -1355,3 +1355,44 @@ html { min-width: 0; }
   .friendsSearchRow button { width: 100%; }
   .friendProfileStats { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* v18 yönetici görünümü: link yalnızca sunucunun doğruladığı hesapta açılır. */
+.adminAccountTools { display:flex; align-items:center; justify-content:flex-end; gap:10px; flex-wrap:wrap; }
+.adminPanelLink { display:inline-flex;align-items:center;justify-content:center; padding:10px 14px;border-radius:10px; background:#e8efff;color:#2459c9;text-decoration:none;font-size:13px;font-weight:800; }
+.adminPanelLink:hover { background:#d8e6ff; }
+.adminAccountTools .hidden { display:none !important; }
+.accountIdentity { margin:5px 20px 14px;font-size:11px;color:#7586a2;display:flex;flex-wrap:wrap;align-items:center;gap:7px; }
+.accountIdentity code { font-size:10px;word-break:break-all; }
+.accountIdentity button { font-size:11px;padding:5px 8px;background:#ebf1fe;color:#275cbd;border-radius:8px; }
+@media(max-width:530px){.adminAccountTools { justify-content:flex-start; }.accountIdentity { margin:8px 12px; }}
+
+/* v19: açıklayıcı bildirimler ve sıra farkındalığı */
+.noticeModalCard { width:min(460px,calc(100vw - 28px)); padding:clamp(18px,4vw,30px); }
+.noticeModalIcon { display:grid; place-items:center; margin:0 auto 12px; width:58px; height:58px; border-radius:19px; background:#eef4ff; font-size:30px; }
+#noticeModalCloseBtn { width:100%; min-height:48px; }
+#noticeModalText { line-height:1.55; overflow-wrap:anywhere; }
+.turnSoundControl { display:inline-flex; align-items:center; gap:5px; font-size:12px; cursor:pointer; font-weight:650; color:#6c7a8f; margin-top:5px; }
+.turnSoundControl input { accent-color:#1f9b56; width:15px; height:15px; }
+.turnCallout { border-radius:15px; background:linear-gradient(100deg,#178a48,#25ad64); color:white; padding:13px 18px; font-size:clamp(14px,2vw,18px); font-weight:850; text-align:center; margin:0 0 12px; box-shadow:0 5px 16px rgba(15,132,67,.22); }
+.turnCalloutPulse { animation:turnCue .8s ease-out 1; }
+@keyframes turnCue { 0% {transform:scale(.97); box-shadow:0 0 0 0 rgba(36,179,103,.5);} 55% {transform:scale(1.01); box-shadow:0 0 0 9px rgba(36,179,103,0);} 100% {transform:scale(1); box-shadow:0 5px 16px rgba(15,132,67,.22);} }
+#gameScreen .turnBadge.my-turn-badge { color:#fff; background:#128a4a; font-weight:900; box-shadow:0 2px 14px rgba(21,165,86,.24); }
+#gameScreen .playerCard.active-turn { outline:2px solid rgba(33,170,80,.68); outline-offset:-1px; }
+body[data-theme="dark"] .turnSoundControl { color:#c3cfdd; }
+body[data-theme="dark"] .turnCallout { background:linear-gradient(100deg,#125e37,#19844b); }
+@media (max-width:420px) { .turnCallout {padding:10px 8px; font-size:13px;} .turnSoundControl {font-size:11px;} .noticeModalCard {max-height:calc(100dvh - 24px); overflow:auto;} }
+@media (prefers-reduced-motion:reduce) { .turnCalloutPulse {animation:none;} }
+
+/* Kullanıcı adı kuralları: kısa açıklama, mobil ve masaüstü */
+/* Kullanıcı adı yardım metni, responsive hesap formunun yerleşimini bozmasın. */
+.accountForm { grid-template-areas: "user-label pass-label" "username password" "hint hint" "submit submit" "message message"; }
+.accountForm label:nth-of-type(1) { grid-area: user-label; }
+.accountForm label:nth-of-type(2) { grid-area: pass-label; }
+#authUsername { grid-area: username; }
+#authPassword { grid-area: password; }
+.authUsernameHint { display: block; grid-area: hint; font-size: 12px; line-height: 1.45; color: #738198; margin-top: -3px; }
+.accountSubmit { grid-area: submit; }
+.authMessage { grid-area: message; }
+@media (max-width: 430px) {
+  .accountForm { grid-template-areas: "user-label" "username" "hint" "pass-label" "password" "submit" "message"; }
+}
