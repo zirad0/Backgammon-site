@@ -288,3 +288,78 @@ test('siyah oyuncu maçı kazanınca rövanşa da siyah başlar', () => {
   assert.equal(room.game.turn, 'black');
   assert.equal(room.game.winner, null);
 });
+
+test('herkese açık bekleyen odalar listelenir, özel odalar listelenmez', () => {
+  const h = harness();
+  const observer = h.createSocket('spectator');
+  assert.deepEqual(observer.last('rooms:list'), []);
+  const privateHost = h.createSocket('privateHost');
+  privateHost.trigger('room:create', {
+    name: 'Gizli', visibility: 'private', playerToken: 'x'.repeat(36)
+  });
+  assert.equal(observer.last('rooms:list').length, 0);
+  const host = h.createSocket('publicHost');
+  host.trigger('room:create', {
+    name: 'Açık Ev', visibility: 'public', targetScore: 7, playerToken: 'y'.repeat(36)
+  });
+  const publicRoom = host.last('room:joined').roomCode;
+  const list = observer.last('rooms:list');
+  assert.equal(list.length, 1);
+  assert.equal(list[0].roomCode, publicRoom);
+  assert.equal(list[0].targetScore, 7);
+  assert.equal(list[0].players[0].name, 'Açık Ev');
+  assert.equal(list[0].playerCount, 1);
+  assert.equal(JSON.stringify(list).includes('playerToken'), false);
+  assert.equal(JSON.stringify(list).includes('socketId'), false);
+  const freshVisitor = h.createSocket('freshVisitor');
+  assert.equal(freshVisitor.last('rooms:list')[0].roomCode, publicRoom);
+  freshVisitor.trigger('rooms:request');
+  assert.equal(freshVisitor.last('rooms:list')[0].roomCode, publicRoom);
+});
+
+test('herkese açık odaya ikinci oyuncu girince oda listeden anında kalkar', () => {
+  const h = harness();
+  const host = h.createSocket('host');
+  const visitor = h.createSocket('visitor');
+  host.trigger('room:create', { name: 'Ev Sahibi', visibility: 'public', playerToken: 'w'.repeat(36) });
+  const code = host.last('room:joined').roomCode;
+  assert.equal(visitor.last('rooms:list').length, 1);
+  visitor.trigger('room:join', { roomCode: code, name: 'Misafir', playerToken: 'z'.repeat(36) });
+  assert.equal(visitor.last('room:joined').color, 'black');
+  assert.equal(visitor.last('rooms:list').length, 0);
+  assert.equal(h.rooms.get(code).hasStarted, true);
+  visitor.trigger('disconnect');
+  assert.equal(host.last('rooms:list').length, 0); // Başlamış oda tekrar açılmamalı.
+  const late = h.createSocket('late');
+  assert.equal(late.last('rooms:list').length, 0);
+});
+
+test('bekleyen herkese açık oda bağlantı kesilince gizlenir, geri gelince görünür', () => {
+  const h = harness();
+  const host = h.createSocket('host');
+  const spectator = h.createSocket('spectator');
+  const token = 'r'.repeat(36);
+  host.trigger('room:create', { name: 'Çevrimiçi', visibility: 'public', playerToken: token });
+  const code = host.last('room:joined').roomCode;
+  assert.equal(spectator.last('rooms:list').length, 1);
+  host.trigger('disconnect');
+  assert.equal(spectator.last('rooms:list').length, 0);
+  const sameHost = h.createSocket('rehost');
+  sameHost.trigger('player:reconnect', { playerToken: token });
+  assert.equal(spectator.last('rooms:list')[0].roomCode, code);
+  sameHost.trigger('room:leave', { playerToken: token });
+  assert.equal(spectator.last('rooms:list').length, 0);
+});
+
+test('geçersiz görünürlük varsayılan özel olur ve özel odaya kodla katılınabilir', () => {
+  const h = harness();
+  const a = h.createSocket('a');
+  const b = h.createSocket('b');
+  a.trigger('room:create', { name: 'Test', visibility: 'everyone', playerToken: 'c'.repeat(36) });
+  const code = a.last('room:joined').roomCode;
+  assert.equal(h.rooms.get(code).visibility, 'private');
+  assert.deepEqual(b.last('rooms:list'), []);
+  b.trigger('room:join', { roomCode: code, playerToken: 'd'.repeat(36) });
+  assert.equal(b.last('room:joined').roomCode, code);
+  assert.equal(a.last('state:update').visibility, 'private');
+});

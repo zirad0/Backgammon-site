@@ -23,6 +23,7 @@ const server = http.createServer(app);
 const io = new Server(server);
 const PORT = Number(process.env.PORT) || 3000;
 const ROOM_IDLE_EXPIRY_MS = 60 * 60 * 1000; // 1 saat boyunca iki oyuncu da yoksa oda silinir.
+const PUBLIC_LOBBY_CHANNEL = 'public-lobby';
 const MAX_ROOMS = 200; // Hobi sunucusunu sınırsız oda oluşturmaktan korur.
 const DOUBLE_OFFER_WINDOW_MS = 2700;
 
@@ -173,16 +174,39 @@ function refreshRoomActivity(room) {
   room.lastActivityAt = Date.now();
 }
 
-function createRoomModel(score, creatorSocketId, creatorName, creatorToken, creatorAutoDice = true) {
+function createRoomModel(score, creatorSocketId, creatorName, creatorToken, creatorAutoDice = true, visibility = 'private') {
   return {
     players: {
       white: { socketId: creatorSocketId, name: sanitizeName(creatorName, 'Oyuncu 1'), connected: true, playerToken: creatorToken || null, autoDice: creatorAutoDice !== false },
       black: null
     },
     chat: [],
+    visibility: visibility === 'public' ? 'public' : 'private',
+    hasStarted: false,
+    createdAt: Date.now(),
     lastActivityAt: Date.now(),
     game: createMatch(score)
   };
+}
+
+// Yalnızca henüz maç başlamamış, kurucusu bağlı, bir oyunculu herkese açık odaları listele.
+// Özel odalar ve devam eden/bitmiş maçlar bu olayla ASLA paylaşılmaz.
+function listOpenPublicRooms() {
+  return [...rooms.entries()]
+    .filter(([, room]) => room.visibility === 'public' && !room.hasStarted &&
+      room.players.white?.connected && !room.players.black)
+    .sort((a, b) => b[1].createdAt - a[1].createdAt)
+    .map(([roomCode, room]) => ({
+      roomCode,
+      targetScore: room.game.targetScore,
+      playerCount: 1,
+      maxPlayers: 2,
+      players: [{ name: room.players.white.name, color: 'white' }]
+    }));
+}
+
+function broadcastOpenPublicRooms() {
+  io.to(PUBLIC_LOBBY_CHANNEL).emit('rooms:list', listOpenPublicRooms());
 }
 
 function pushChatMessage(room, color, name, text) {
@@ -264,6 +288,7 @@ function buildPublicState(roomCode, room) {
 
   return {
     roomCode,
+    visibility: room.visibility,
     players: { white: publicPlayer(room.players.white), black: publicPlayer(room.players.black) },
     game: {
       turn: game.turn,
@@ -325,9 +350,12 @@ setInterval(() => {
 }, 10 * 60 * 1000).unref();
 
 io.on('connection', (socket) => {
+  socket.join(PUBLIC_LOBBY_CHANNEL);
+  socket.emit('rooms:list', listOpenPublicRooms());
+  socket.on('rooms:request', () => socket.emit('rooms:list', listOpenPublicRooms()));
   socket.data.roomCreates = [];
   socket.on('room:create', (payload = {}) => {
-    const { name, targetScore, playerToken, autoDice } = payload && typeof payload === 'object' ? payload : {};
+    const { name, targetScore, playerToken, autoDice, visibility } = payload && typeof payload === 'object' ? payload : {};
     const now = Date.now();
     socket.data.roomCreates = socket.data.roomCreates.filter(t => now - t < 60_000);
     if (socket.data.roomCreates.length >= 3 || rooms.size >= MAX_ROOMS) {
@@ -345,12 +373,13 @@ io.on('connection', (socket) => {
     let roomCode = randomRoomCode();
     while (rooms.has(roomCode)) roomCode = randomRoomCode();
 
-    const room = createRoomModel(score, socket.id, name, playerToken, autoDice);
+    const room = createRoomModel(score, socket.id, name, playerToken, autoDice, visibility);
 
     rooms.set(roomCode, room);
     socket.join(roomCode);
     socket.emit('room:joined', { roomCode, color: 'white' });
     emitRoomState(roomCode);
+    broadcastOpenPublicRooms();
   });
 
   socket.on('room:join', (payload = {}) => {
@@ -384,6 +413,7 @@ io.on('connection', (socket) => {
       socket.emit('room:joined', { roomCode, color: 'white' });
       emitRoomState(roomCode);
       maybeStartTurnRoll(roomCode);
+      broadcastOpenPublicRooms();
       return;
     }
 
@@ -403,11 +433,13 @@ io.on('connection', (socket) => {
     }
 
     room.players.black = attachPlayer({}, socket.id, name || 'Oyuncu 2', playerToken, autoDice);
+    room.hasStarted = true;
     pushChatMessage(room, 'system', 'Sistem', `${room.players.black.name} odaya katıldı.`);
     socket.join(roomCode);
     socket.emit('room:joined', { roomCode, color: 'black' });
     emitRoomState(roomCode);
     maybeStartTurnRoll(roomCode, 900);
+    broadcastOpenPublicRooms();
   });
 
   socket.on('player:reconnect', (payload = {}) => {
@@ -425,6 +457,7 @@ io.on('connection', (socket) => {
     socket.emit('room:joined', { roomCode, color });
     emitRoomState(roomCode);
     maybeStartTurnRoll(roomCode);
+    broadcastOpenPublicRooms();
   });
 
   socket.on('settings:autoDice', (payload = {}) => {
@@ -651,6 +684,7 @@ io.on('connection', (socket) => {
     clearGameTimers(room.game);
     // Yarım kalmış maçın sahipsiz bir oyuncuyla devam etmesini önle.
     rooms.delete(roomCode);
+    broadcastOpenPublicRooms();
     io.to(roomCode).emit('room:closed', {
       reason: `${name} odadan ayrıldı. Oda kapatıldı; yeni bir oda açabilirsiniz.`
     });
@@ -677,6 +711,7 @@ io.on('connection', (socket) => {
     }
     room.game.diceRolling = false;
     emitRoomState(roomCode);
+    broadcastOpenPublicRooms();
   });
 });
 

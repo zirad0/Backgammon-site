@@ -49,6 +49,19 @@
             <option value="7">7</option>
             <option value="11">11</option>
           </select>
+          <fieldset class="roomVisibilityField">
+            <legend>Oda görünürlüğü</legend>
+            <div class="roomVisibilityChoices">
+              <label class="roomVisibilityOption">
+                <input type="radio" name="roomVisibility" value="private" checked />
+                <span class="visibilityOptionContent"><strong>🔒 Özel</strong><small>Yalnızca kodu bilenler katılır.</small></span>
+              </label>
+              <label class="roomVisibilityOption">
+                <input type="radio" name="roomVisibility" value="public" />
+                <span class="visibilityOptionContent"><strong>🌐 Herkese Açık</strong><small>Beklerken listede görünür.</small></span>
+              </label>
+            </div>
+          </fieldset>
           <button id="createRoomBtn" class="primary lobbyCTA">Oda Aç</button>
         </div>
 
@@ -64,6 +77,19 @@
         </div>
       </div>
       <div id="lobbyMessage" class="message" role="status" aria-live="polite"></div>
+      <section class="publicRoomsSection" aria-labelledby="publicRoomsTitle">
+        <div class="publicRoomsHeader">
+          <div>
+            <span class="publicRoomsEyebrow">CANLI ODA LİSTESİ</span>
+            <h2 id="publicRoomsTitle">Herkese açık odalar <span id="publicRoomsCount" class="publicRoomsCount">0</span></h2>
+            <p>Henüz başlamamış oyunlara katıl. Maç başladığında oda listeden kalkar.</p>
+          </div>
+          <button id="refreshPublicRoomsBtn" type="button" class="refreshRoomsBtn" aria-label="Oda listesini yenile">↻ Yenile</button>
+        </div>
+        <div id="publicRoomsList" class="publicRoomsList" aria-live="polite" aria-relevant="additions removals">
+          <div class="emptyPublicRooms">Açık oda aranıyor...</div>
+        </div>
+      </section>
       <div class="lobbyHow">
         <div><span class="howIndex">01</span><strong>Oda aç</strong><small>İsmini ve hedef puanı seç.</small></div>
         <div><span class="howIndex">02</span><strong>Daveti paylaş</strong><small>Oda kodunu veya bağlantıyı gönder.</small></div>
@@ -76,7 +102,7 @@
       <div class="topbar card">
         <div>
           <div class="brand"><span data-text="brand">Tavla</span></div>
-          <div class="roomRow">Oda Kodu: <span id="roomCodeLabel">-----</span> <button id="copyRoomBtn" class="tiny" data-text="copy">Kopyala</button></div>
+          <div class="roomRow">Oda Kodu: <span id="roomCodeLabel">-----</span> <span id="gameVisibilityBadge" class="gameVisibilityBadge">Özel oda</span> <button id="copyRoomBtn" class="tiny" data-text="copy">Kopyala</button></div>
           <div id="roomLinkPreview" class="roomLinkPreview muted"></div>
         </div>
         <div class="statusActions">
@@ -112,6 +138,7 @@
         </div>
       </div>
 
+      <p class="mobileBoardTip">Tahtayı daha büyük görmek için telefonunu yatay çevirebilirsin.</p>
       <div id="tableWrap" class="tableWrap card">
         <div id="board" class="board"></div>
       </div>

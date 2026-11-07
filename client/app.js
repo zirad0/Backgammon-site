@@ -32,6 +32,7 @@ const state = {
   lastRoundSummaryId: null,
   lastMatchSummaryId: null,
   chatMessages: [],
+  publicRooms: [],
   theme: storedPrefs.theme || 'classic',
   skin: storedPrefs.skin || 'classic',
   autoDice: storedPrefs.autoDice !== false,
@@ -191,6 +192,10 @@ const matchExitBtn = $('matchExitBtn');
 const doubleExitBtn = $('doubleExitBtn');
 const rematchStatusText = $('rematchStatusText');
 const connectionStatus = $('connectionStatus');
+const publicRoomsListEl = $('publicRoomsList');
+const publicRoomsCountEl = $('publicRoomsCount');
+const refreshPublicRoomsBtn = $('refreshPublicRoomsBtn');
+const gameVisibilityBadge = $('gameVisibilityBadge');
 
 
 function showToast(message, variant = 'info') {
@@ -209,23 +214,27 @@ function showToast(message, variant = 'info') {
 
 function updateBoardScale() {
   if (!board || !tableWrap) return;
-  const mobile = window.innerWidth <= 860;
   board.style.removeProperty('--board-scale');
   tableWrap.style.removeProperty('--board-height');
-  if (!mobile) {
-    board.classList.remove('mobileScaled');
-    return;
-  }
+  board.classList.remove('mobileScaled');
+  if (window.innerWidth > 860 || gameScreen.classList.contains('hidden')) return;
+
+  // Sabit tahmini boyutlar yerine tahtanın gerçek kapladığı alanı ölç.
+  // Mobilde sağdaki taş toplama bölmesi de ölçeğe dahil edilir.
+  const naturalWidth = board.offsetWidth;
+  const naturalHeight = board.offsetHeight;
+  const tray = board.querySelector('.offTray');
+  const trayStyle = tray && getComputedStyle(tray);
+  const trayOverhang = trayStyle ? Math.abs(parseFloat(trayStyle.right) || 0) + 2 : 0;
+  const wrapStyle = getComputedStyle(tableWrap);
+  const innerWidth = tableWrap.clientWidth - (parseFloat(wrapStyle.paddingLeft) || 0)
+    - (parseFloat(wrapStyle.paddingRight) || 0) - 3;
+  if (!naturalWidth || !naturalHeight || innerWidth <= 0) return;
+  const scale = Math.min(1, innerWidth / (naturalWidth + trayOverhang));
   board.classList.add('mobileScaled');
-  const available = tableWrap.clientWidth - 12;
-  const smallScreen = window.innerWidth <= 640;
-  const naturalWidth = window.innerWidth <= 420 ? 430 : smallScreen ? 480 : 760;
-  const naturalHeight = window.innerWidth <= 420 ? 332 : smallScreen ? 370 : 620;
-  // Oyundan çıkan taşlar için sağda da yer ayır; mobilde yatay taşma yaratmasın.
-  const offTrayRoom = smallScreen ? 48 : 122;
-  const scale = Math.min(1, Math.max(0.62, available / (naturalWidth + offTrayRoom)));
   board.style.setProperty('--board-scale', String(scale));
-  tableWrap.style.setProperty('--board-height', `${naturalHeight * scale + 8}px`);
+  const verticalPadding = (parseFloat(wrapStyle.paddingTop) || 0) + (parseFloat(wrapStyle.paddingBottom) || 0);
+  tableWrap.style.setProperty('--board-height', `${Math.ceil(naturalHeight * scale + verticalPadding + 3)}px`);
 }
 
 window.addEventListener('resize', updateBoardScale);
@@ -391,19 +400,63 @@ function sendChat() {
   chatInput.value = '';
 }
 
+function renderPublicRooms() {
+  if (!publicRoomsListEl || !publicRoomsCountEl) return;
+  const publicRooms = state.publicRooms || [];
+  publicRoomsCountEl.textContent = String(publicRooms.length);
+  publicRoomsListEl.replaceChildren();
+  if (!publicRooms.length) {
+    const empty = document.createElement('div');
+    empty.className = 'emptyPublicRooms';
+    empty.textContent = socket.connected
+      ? 'Şu anda bekleyen herkese açık oda yok. İlk odayı sen açabilirsin!'
+      : 'Sunucu bağlantısı bekleniyor...';
+    publicRoomsListEl.appendChild(empty);
+    return;
+  }
+  for (const room of publicRooms) {
+    const card = document.createElement('article');
+    card.className = 'publicRoomCard';
+    const roomDetails = document.createElement('div');
+    roomDetails.className = 'publicRoomDetails';
+    const heading = document.createElement('strong');
+    heading.className = 'publicRoomCode';
+    heading.textContent = `🎲 ${room.roomCode}`;
+    const players = document.createElement('div');
+    players.className = 'publicRoomPlayers';
+    const names = Array.isArray(room.players) ? room.players.map(p => p.name).join(', ') : '';
+    players.textContent = `Oyuncular: ${names || 'Bekleniyor'}`;
+    const meta = document.createElement('div');
+    meta.className = 'publicRoomMeta';
+    meta.textContent = `${room.playerCount || 1}/2 oyuncu · ${room.targetScore} puanlık maç · Rakip bekliyor`;
+    roomDetails.append(heading, players, meta);
+    const joinButton = document.createElement('button');
+    joinButton.type = 'button';
+    joinButton.className = 'publicRoomJoinBtn';
+    joinButton.textContent = 'Katıl';
+    joinButton.disabled = !socket.connected;
+    joinButton.setAttribute('aria-label', `${room.roomCode} kodlu odaya katıl`);
+    joinButton.addEventListener('click', () => joinRoom(room.roomCode));
+    card.append(roomDetails, joinButton);
+    publicRoomsListEl.appendChild(card);
+  }
+}
+
 function createRoom() {
   const name = createName.value.trim() || 'Oyuncu 1';
   state.me.name = name;
   savePrefs();
   if (!socket.connected) return setLobbyMessage('Sunucuya bağlantı kurulamadı. Biraz sonra tekrar dene.');
   setLobbyMessage('', false);
-  socket.emit('room:create', { name, targetScore: targetScoreSelect.value, playerToken: state.me.playerToken, autoDice: state.autoDice });
+  const visibility = document.querySelector('input[name="roomVisibility"]:checked')?.value || 'private';
+  socket.emit('room:create', { name, targetScore: targetScoreSelect.value, visibility, playerToken: state.me.playerToken, autoDice: state.autoDice });
 }
 
-function joinRoom() {
-  const name = joinName.value.trim() || 'Oyuncu 2';
-  const roomCode = roomCodeInput.value.trim().toUpperCase();
+function joinRoom(requestedCode = null) {
+  const name = joinName.value.trim() || createName.value.trim() || 'Oyuncu 2';
+  const roomCode = (typeof requestedCode === 'string' ? requestedCode : roomCodeInput.value).trim().toUpperCase();
   state.me.name = name;
+  if (roomCode) roomCodeInput.value = roomCode;
   if (!roomCode) {
     setLobbyMessage(t('needRoomCode'));
     return;
@@ -415,7 +468,10 @@ function joinRoom() {
 }
 
 createRoomBtn.addEventListener('click', createRoom);
-joinRoomBtn.addEventListener('click', joinRoom);
+joinRoomBtn.addEventListener('click', () => joinRoom());
+refreshPublicRoomsBtn?.addEventListener('click', () => {
+  if (socket.connected) socket.emit('rooms:request');
+});
 roomCodeInput.addEventListener('input', () => {
   roomCodeInput.value = roomCodeInput.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5);
 });
@@ -480,6 +536,7 @@ function showLobby(message = '', error = false) {
   url.searchParams.delete('room');
   window.history.replaceState(null, '', url.toString());
   setLobbyMessage(message, error);
+  if (socket.connected) socket.emit('rooms:request');
 }
 
 function leaveRoom() {
@@ -502,6 +559,8 @@ function renderConnectionStatus() {
   connectionStatus.innerHTML = `<span class="connectionDot"></span> ${connected ? 'Sunucuya bağlı' : 'Bağlantı bekleniyor'}`;
   createRoomBtn.disabled = !connected;
   joinRoomBtn.disabled = !connected;
+  if (refreshPublicRoomsBtn) refreshPublicRoomsBtn.disabled = !connected;
+  renderPublicRooms();
 }
 
 applyUIText();
@@ -515,13 +574,21 @@ prefillLobbyFromPrefs();
 socket.on('connect', () => {
   // Sunucu yeniden bağlandığında oyuncunun odasını geri iste.
   renderConnectionStatus();
+  socket.emit('rooms:request');
   if (state.me.playerToken && !state.suppressReconnect) {
     socket.emit('player:reconnect', { playerToken: state.me.playerToken, autoDice: state.autoDice });
   }
 });
 socket.on('disconnect', () => {
   renderConnectionStatus();
+  state.publicRooms = [];
+  renderPublicRooms();
   if (state.me.roomCode) statusText.textContent = 'Bağlantı kesildi. Yeniden bağlanılıyor...';
+});
+
+socket.on('rooms:list', (rooms) => {
+  state.publicRooms = Array.isArray(rooms) ? rooms : [];
+  renderPublicRooms();
 });
 
 socket.on('player:reconnect-missing', () => {
@@ -588,6 +655,7 @@ socket.on('state:update', (roomState) => {
 
   if (!state.me.roomCode || roomState.roomCode !== state.me.roomCode) return;
   state.room = roomState;
+  if (gameVisibilityBadge) gameVisibilityBadge.textContent = roomState.visibility === 'public' ? 'Herkese açık' : 'Özel oda';
   updateRoomLinkPreview();
   savePrefs();
   state.animating = !!roomState.game.animating;

@@ -1,4 +1,4 @@
-# Tavla Online v9 — GitHub ve Render yayınlama rehberi
+# Tavla Online v11 — GitHub ve Render yayınlama rehberi
 
 ## GitHub'a yükleme veya mevcut siteyi güncelleme
 
@@ -32,6 +32,10 @@
 ## Yayın öncesi kontrol listesi
 
 - [ ] Ana sayfa telefonda ve bilgisayarda açılıyor.
+- [ ] Özel oda açılınca herkese açık odalar listesinde görünmüyor; kodla katılım çalışıyor.
+- [ ] Herkese açık oda oluşturulduğunda listede oyuncu adı ve puan hedefi görünüyor.
+- [ ] Herkese açık oda ikinci oyuncu girince listeden anında kalkıyor.
+- [ ] Mobil ekranda tahta, taş toplama alanı ve kontrol panelleri taşmıyor.
 - [ ] Oda aç / davet koduyla katıl çalışıyor.
 - [ ] Bir oyuncunun attığı zar diğer oyuncuda aynı görünüyor.
 - [ ] Hamleleri iki oyuncu da aynı şekilde görüyor.
